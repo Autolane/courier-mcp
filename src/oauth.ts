@@ -2,6 +2,10 @@
 // public client (AUT-3861), the RFC 8628 device grant (contract A91), refresh with rotation, RFC 7009 revoke.
 export type Fetch = typeof globalThis.fetch;
 
+/** No request may hang: a refresh stuck past the lock's stale limit would let a second process reuse the refresh token. */
+const REQUEST_TIMEOUT_MS = 10_000;
+const timeout = () => AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+
 export const DEVICE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code';
 
 export interface Endpoints {
@@ -51,12 +55,13 @@ const form = (fields: Record<string, string>): RequestInit => ({
   method: 'POST',
   headers: { 'content-type': 'application/x-www-form-urlencoded' },
   body: new URLSearchParams(fields).toString(),
+  signal: timeout(),
 });
 
 /** RFC 8414 section 3.1: the issuer is the server URL (contract A97), so its path goes after the well-known prefix. */
 export async function discover(server: string, f: Fetch = fetch): Promise<Endpoints> {
   const url = new URL(server);
-  const meta = await json<Partial<Record<(typeof ENDPOINT_KEYS)[number], unknown>>>(await f(`${url.origin}/.well-known/oauth-authorization-server${url.pathname.replace(/\/$/, '')}`));
+  const meta = await json<Partial<Record<(typeof ENDPOINT_KEYS)[number], unknown>>>(await f(`${url.origin}/.well-known/oauth-authorization-server${url.pathname.replace(/\/$/, '')}`, { signal: timeout() }));
   for (const key of ENDPOINT_KEYS) {
     if (typeof meta[key] !== 'string') throw new Error(`${server} does not offer ${key}; is it a Courier MCP URL?`);
   }
@@ -69,6 +74,7 @@ export async function register(endpoints: Endpoints, clientName: string, f: Fetc
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ client_name: clientName, redirect_uris: [], grant_types: [DEVICE_GRANT, 'refresh_token'], token_endpoint_auth_method: 'none' }),
+    signal: timeout(),
   });
   return (await json<{ client_id: string }>(res)).client_id;
 }

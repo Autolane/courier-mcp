@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -87,5 +87,14 @@ describe('withLock', () => {
     const store = fileStore(dir, SERVER);
     await expect(store.withLock(async () => { throw new Error('boom'); })).rejects.toThrow('boom');
     expect(await readdir(dir)).not.toContain('courier-mcp.lock');
+  });
+
+  it('leaves a lock another holder took over, when the first holder finishes late', async () => {
+    const store = fileStore(dir, SERVER);
+    const lock = join(dir, 'courier-mcp.lock');
+    await store.withLock(async () => {
+      await writeFile(lock, 'other-holder-token\n');
+    });
+    expect(await readFile(lock, 'utf8')).toBe('other-holder-token\n');
   });
 });
