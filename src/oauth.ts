@@ -51,6 +51,15 @@ async function json<T>(res: Response): Promise<T> {
   return body as T;
 }
 
+/** A 200 that is not a token set must not reach the saved file, where the missing fields would drop the refresh token. */
+async function tokenSet(res: Response): Promise<TokenSet> {
+  const body = await json<Partial<Record<keyof TokenSet, unknown>>>(res);
+  if (typeof body.access_token !== 'string' || typeof body.refresh_token !== 'string' || typeof body.expires_in !== 'number' || !Number.isFinite(body.expires_in)) {
+    throw new OAuthError('invalid_response', 'The token response is missing a field', 502);
+  }
+  return body as TokenSet;
+}
+
 const form = (fields: Record<string, string>): RequestInit => ({
   method: 'POST',
   headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -99,7 +108,7 @@ export async function pollDevice(
     await sleep(interval * 1000);
     if (now() > deadline) throw new OAuthError('expired_token', 'The link expired before your phone was linked; run login again', 400);
     try {
-      return await json<TokenSet>(await f(endpoints.token_endpoint, form({ grant_type: DEVICE_GRANT, device_code: start.device_code, client_id: clientId })));
+      return await tokenSet(await f(endpoints.token_endpoint, form({ grant_type: DEVICE_GRANT, device_code: start.device_code, client_id: clientId })));
     } catch (error) {
       if (!(error instanceof OAuthError)) throw error;
       if (error.code === 'authorization_pending') continue;
@@ -113,7 +122,7 @@ export async function pollDevice(
 }
 
 export async function refresh(endpoints: Endpoints, clientId: string, refreshToken: string, f: Fetch = fetch): Promise<TokenSet> {
-  return json<TokenSet>(await f(endpoints.token_endpoint, form({ grant_type: 'refresh_token', refresh_token: refreshToken, client_id: clientId })));
+  return tokenSet(await f(endpoints.token_endpoint, form({ grant_type: 'refresh_token', refresh_token: refreshToken, client_id: clientId })));
 }
 
 export async function revoke(endpoints: Endpoints, clientId: string, token: string, f: Fetch = fetch): Promise<void> {

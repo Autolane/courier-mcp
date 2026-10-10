@@ -88,6 +88,20 @@ describe('refresh', () => {
   });
 });
 
+describe('a token reply without the tokens', () => {
+  const bad = [{ body: {} }, { body: { access_token: 'a', refresh_token: 'r' } }, { body: { access_token: 'a', refresh_token: 'r', expires_in: 'soon' } }];
+
+  it.each(bad)('refresh rejects with invalid_response: %j', async (reply) => {
+    const { fetch } = fakeOAuth({ token: [reply] });
+    await expect(refresh(ENDPOINTS, 'mc_1', 'rt-1', fetch)).rejects.toMatchObject({ code: 'invalid_response', status: 502 });
+  });
+
+  it.each(bad)('pollDevice rejects with invalid_response: %j', async (reply) => {
+    const { fetch } = fakeOAuth({ token: [reply] });
+    await expect(pollDevice(ENDPOINTS, 'mc_1', start, { fetch, sleep: async () => {}, now: () => 0 })).rejects.toMatchObject({ code: 'invalid_response', status: 502 });
+  });
+});
+
 describe('revoke', () => {
   it('posts the refresh token with its hint and the client id', async () => {
     const { fetch, calls } = fakeOAuth();
