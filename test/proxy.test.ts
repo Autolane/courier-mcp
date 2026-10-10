@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { RELINK } from '../src/config.js';
@@ -58,7 +58,74 @@ describe('createProxy', () => {
     cleanups.push(courier.close);
     const agent = await agentThrough(courier.url, { accessToken: async () => { throw new NotLinkedError(); } });
     expect(await agent.callTool({ name: 'check_delivery', arguments: {} })).toMatchObject({ isError: true, content: [{ type: 'text', text: RELINK }] });
-    await expect(agent.listTools()).rejects.toThrow(RELINK);
+  });
+
+  it('lists one login tool when the login is gone, and calling it returns the relink line', async () => {
+    const courier = await startCourierServer('good');
+    cleanups.push(courier.close);
+    const agent = await agentThrough(courier.url, { accessToken: async () => { throw new NotLinkedError(); } });
+    const { tools } = await agent.listTools();
+    expect(tools).toEqual([{ name: 'autolane_courier_login_needed', description: `${RELINK}, then restart your agent.`, inputSchema: { type: 'object', properties: {} } }]);
+    expect(await agent.callTool({ name: 'autolane_courier_login_needed', arguments: {} })).toMatchObject({ isError: true, content: [{ type: 'text', text: `${RELINK}, then restart your agent.` }] });
+  });
+
+  it('forwards resources/templates/list', async () => {
+    const courier = await startCourierServer('good');
+    cleanups.push(courier.close);
+    const agent = await agentThrough(courier.url, { accessToken: async () => 'good' });
+    expect((await agent.listResourceTemplates()).resourceTemplates.map((t) => t.uriTemplate)).toEqual(['courier://delivery/{id}']);
+  });
+
+  it("passes the agent's abort signal into every forwarded request", async () => {
+    const courier = await startCourierServer('good');
+    cleanups.push(courier.close);
+    const spies = (['listTools', 'callTool', 'listResources', 'listResourceTemplates', 'readResource'] as const).map((name) => ({ name, spy: vi.spyOn(Client.prototype, name) }));
+    const agent = await agentThrough(courier.url, { accessToken: async () => 'good' });
+    await agent.listTools();
+    await agent.callTool({ name: 'check_delivery', arguments: {} });
+    await agent.listResources();
+    await agent.listResourceTemplates();
+    await agent.readResource({ uri: 'courier://description' });
+    // The agent's own client made these calls too; the forwarded ones carry a signal in their options (callTool's third argument, the rest's second).
+    for (const { name, spy } of spies) {
+      const optionsAt = name === 'callTool' ? 2 : 1;
+      expect(spy.mock.calls.some((args) => (args[optionsAt] as { signal?: unknown } | undefined)?.signal instanceof AbortSignal), name).toBe(true);
+    }
+    vi.restoreAllMocks();
+  });
+
+  it('closes the upstream client when the proxy closes', async () => {
+    const courier = await startCourierServer('good');
+    cleanups.push(courier.close);
+    const proxy = createProxy({ server: courier.url, session: { accessToken: async () => 'good' } });
+    const [agentSide, proxySide] = InMemoryTransport.createLinkedPair();
+    await proxy.connect(proxySide);
+    const agent = new Client({ name: 'agent', version: '0.0.0' });
+    await agent.connect(agentSide);
+    await agent.listTools();
+    const close = vi.spyOn(Client.prototype, 'close');
+    await proxy.close();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(close).toHaveBeenCalledTimes(1);
+    vi.restoreAllMocks();
+    await agent.close();
+  });
+
+  it('reports a protocol error as one line on the log, with the message and nothing else', () => {
+    const lines: string[] = [];
+    const proxy = createProxy({ server: 'http://127.0.0.1:1/courier-mcp', session: { accessToken: async () => 'good' }, log: (line) => lines.push(line) });
+    proxy.onerror?.(new Error('bad frame\nsecond line'));
+    expect(lines).toEqual(['courier-mcp: bad frame second line']);
+  });
+
+  it('a 401 that persists after the forced refresh makes exactly two upstream requests, then an error', async () => {
+    const courier = await startCourierServer('good');
+    cleanups.push(courier.close);
+    const forced: boolean[] = [];
+    const agent = await agentThrough(courier.url, { accessToken: async ({ force = false } = {}) => { forced.push(force); return 'still-bad'; } });
+    await expect(agent.listTools()).rejects.toThrow();
+    expect(courier.bearers).toEqual(['Bearer still-bad', 'Bearer still-bad']);
+    expect(forced).toEqual([false, true]);
   });
 
   it('fails a call when Autolane cannot be reached, and tries to connect again on the next one', async () => {
