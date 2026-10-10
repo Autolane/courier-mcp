@@ -35,25 +35,27 @@ export class OAuthError extends Error {
     readonly code: string,
     description: string | undefined,
     readonly status: number,
+    /** The endpoint path, for an error the server gave no description of. */
+    from?: string,
   ) {
-    super(description ? `${code}: ${description}` : code);
+    super(description ? `${code}: ${description}` : from ? `${code} from ${from}` : code);
   }
 }
 
 const ENDPOINT_KEYS = ['registration_endpoint', 'device_authorization_endpoint', 'token_endpoint', 'revocation_endpoint'] as const;
 
-async function json<T>(res: Response): Promise<T> {
+async function json<T>(res: Response, url: string): Promise<T> {
   const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   if (!res.ok) {
     const description = typeof body.error_description === 'string' ? body.error_description : undefined;
-    throw new OAuthError(typeof body.error === 'string' ? body.error : `http_${res.status}`, description, res.status);
+    throw new OAuthError(typeof body.error === 'string' ? body.error : `http_${res.status}`, description, res.status, new URL(url).pathname);
   }
   return body as T;
 }
 
 /** A 200 that is not a token set must not reach the saved file, where the missing fields would drop the refresh token. */
-async function tokenSet(res: Response): Promise<TokenSet> {
-  const body = await json<Partial<Record<keyof TokenSet, unknown>>>(res);
+async function tokenSet(res: Response, url: string): Promise<TokenSet> {
+  const body = await json<Partial<Record<keyof TokenSet, unknown>>>(res, url);
   if (typeof body.access_token !== 'string' || typeof body.refresh_token !== 'string' || typeof body.expires_in !== 'number' || !Number.isFinite(body.expires_in)) {
     throw new OAuthError('invalid_response', 'The token response is missing a field', 502);
   }
@@ -70,7 +72,8 @@ const form = (fields: Record<string, string>): RequestInit => ({
 /** RFC 8414 section 3.1: the issuer is the server URL (contract A97), so its path goes after the well-known prefix. */
 export async function discover(server: string, f: Fetch = fetch): Promise<Endpoints> {
   const url = new URL(server);
-  const meta = await json<Partial<Record<(typeof ENDPOINT_KEYS)[number], unknown>>>(await f(`${url.origin}/.well-known/oauth-authorization-server${url.pathname.replace(/\/$/, '')}`, { signal: timeout() }));
+  const metadataUrl = `${url.origin}/.well-known/oauth-authorization-server${url.pathname.replace(/\/$/, '')}`;
+  const meta = await json<Partial<Record<(typeof ENDPOINT_KEYS)[number], unknown>>>(await f(metadataUrl, { signal: timeout() }), metadataUrl);
   for (const key of ENDPOINT_KEYS) {
     if (typeof meta[key] !== 'string') throw new Error(`${server} does not offer ${key}; is it a Courier MCP URL?`);
   }
@@ -85,11 +88,11 @@ export async function register(endpoints: Endpoints, clientName: string, f: Fetc
     body: JSON.stringify({ client_name: clientName, redirect_uris: [], grant_types: [DEVICE_GRANT, 'refresh_token'], token_endpoint_auth_method: 'none' }),
     signal: timeout(),
   });
-  return (await json<{ client_id: string }>(res)).client_id;
+  return (await json<{ client_id: string }>(res, endpoints.registration_endpoint)).client_id;
 }
 
 export async function startDevice(endpoints: Endpoints, clientId: string, f: Fetch = fetch): Promise<DeviceStart> {
-  return json<DeviceStart>(await f(endpoints.device_authorization_endpoint, form({ client_id: clientId })));
+  return json<DeviceStart>(await f(endpoints.device_authorization_endpoint, form({ client_id: clientId })), endpoints.device_authorization_endpoint);
 }
 
 const isTransient = (error: unknown) => error instanceof TypeError || (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError'));
@@ -111,7 +114,7 @@ export async function pollDevice(
     await sleep(interval * 1000);
     if (now() > deadline) throw new OAuthError('expired_token', 'The link expired before your phone was linked; run login again', 400);
     try {
-      return await tokenSet(await f(endpoints.token_endpoint, form({ grant_type: DEVICE_GRANT, device_code: start.device_code, client_id: clientId })));
+      return await tokenSet(await f(endpoints.token_endpoint, form({ grant_type: DEVICE_GRANT, device_code: start.device_code, client_id: clientId })), endpoints.token_endpoint);
     } catch (error) {
       if (error instanceof OAuthError && error.code === 'authorization_pending') continue;
       // RFC 8628 section 3.5: a slow_down, a dropped connection, a timeout or a 5xx all mean "wait longer and ask again".
@@ -125,10 +128,10 @@ export async function pollDevice(
 }
 
 export async function refresh(endpoints: Endpoints, clientId: string, refreshToken: string, f: Fetch = fetch): Promise<TokenSet> {
-  return tokenSet(await f(endpoints.token_endpoint, form({ grant_type: 'refresh_token', refresh_token: refreshToken, client_id: clientId })));
+  return tokenSet(await f(endpoints.token_endpoint, form({ grant_type: 'refresh_token', refresh_token: refreshToken, client_id: clientId })), endpoints.token_endpoint);
 }
 
 export async function revoke(endpoints: Endpoints, clientId: string, token: string, f: Fetch = fetch): Promise<void> {
   const res = await f(endpoints.revocation_endpoint, form({ token, token_type_hint: 'refresh_token', client_id: clientId }));
-  if (!res.ok) throw new OAuthError(`http_${res.status}`, undefined, res.status);
+  if (!res.ok) throw new OAuthError(`http_${res.status}`, undefined, res.status, new URL(endpoints.revocation_endpoint).pathname);
 }

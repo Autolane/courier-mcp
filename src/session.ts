@@ -38,7 +38,8 @@ export function createSession(opts: { store: TokenStore; endpoints: () => Promis
         try {
           tokens = await refresh(await opts.endpoints(), current.client_id, current.refresh_token, opts.fetch);
         } catch (error) {
-          if (error instanceof OAuthError && error.code === 'invalid_grant') throw new NotLinkedError();
+          // invalid_grant: the refresh token is spent or revoked. invalid_client: the server forgot this client. Both need a new login.
+          if (error instanceof OAuthError && (error.code === 'invalid_grant' || error.code === 'invalid_client')) throw new NotLinkedError();
           throw error;
         }
         await opts.store.write(savedFrom(current, tokens, now()));

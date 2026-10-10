@@ -70,6 +70,21 @@ describe('login', () => {
     expect((await store.read())?.client_id).toBe('mc_old');
   });
 
+  it('registers again, once, when the server no longer knows the saved client', async () => {
+    await store.write({ server: SERVER, client_id: 'mc_old', access_token: 'a', refresh_token: 'r', access_expires_at: 0 });
+    const { fetch, calls } = fakeOAuth({ device: [oauthError('invalid_client', 401)] });
+    await run(fetch, true).done;
+    expect(calls.filter((c) => c.url.endsWith('/oauth/register'))).toHaveLength(1);
+    expect(calls.filter((c) => c.url.endsWith('/oauth/device_authorization')).map((c) => c.form)).toEqual([{ client_id: 'mc_old' }, { client_id: 'mc_new' }]);
+    expect((await store.read())?.client_id).toBe('mc_new');
+  });
+
+  it('gives up when the freshly registered client is refused too', async () => {
+    const { fetch, calls } = fakeOAuth({ device: [oauthError('invalid_client', 401), oauthError('invalid_client', 401)] });
+    await expect(run(fetch, true).done).rejects.toMatchObject({ code: 'invalid_client' });
+    expect(calls.filter((c) => c.url.endsWith('/oauth/register'))).toHaveLength(1);
+  });
+
   it('saves nothing when the link expires', async () => {
     const { fetch } = fakeOAuth({ token: [oauthError('expired_token')] });
     await expect(run(fetch, true).done).rejects.toMatchObject({ code: 'expired_token' });

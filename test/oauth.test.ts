@@ -18,7 +18,7 @@ describe('discover', () => {
 
   it('turns an HTTP error into an OAuthError', async () => {
     const { fetch } = fakeOAuth({ metadata: [{ status: 404, body: 'Not Found' }] });
-    await expect(discover(SERVER, fetch)).rejects.toMatchObject({ code: 'http_404', status: 404 });
+    await expect(discover(SERVER, fetch)).rejects.toMatchObject({ code: 'http_404', status: 404, message: 'http_404 from /.well-known/oauth-authorization-server/courier-mcp' });
   });
 });
 
@@ -144,7 +144,7 @@ describe('revoke', () => {
 
   it('throws on a non-2xx answer', async () => {
     const { fetch } = fakeOAuth({ revoke: [{ status: 503, body: {} }] });
-    await expect(revoke(ENDPOINTS, 'mc_1', 'rt-1', fetch)).rejects.toMatchObject({ code: 'http_503' });
+    await expect(revoke(ENDPOINTS, 'mc_1', 'rt-1', fetch)).rejects.toMatchObject({ code: 'http_503', message: 'http_503 from /courier-mcp/oauth/revoke' });
   });
 });
 

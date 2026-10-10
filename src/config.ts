@@ -14,7 +14,12 @@ const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1']);
 /** The courier MCP endpoint: AUTOLANE_COURIER_URL (sandbox, or a local dev server over http), else production. */
 export function serverUrl(env: NodeJS.ProcessEnv = process.env): string {
   const raw = env.AUTOLANE_COURIER_URL?.trim() || DEFAULT_SERVER;
-  const url = new URL(raw);
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(`AUTOLANE_COURIER_URL is not a URL: ${raw}`);
+  }
   if (url.protocol !== 'https:' && !(url.protocol === 'http:' && LOCAL_HOSTS.has(url.hostname))) {
     throw new Error(`AUTOLANE_COURIER_URL must be an https URL (or http on localhost): ${raw}`);
   }
