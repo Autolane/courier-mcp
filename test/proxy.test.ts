@@ -3,7 +3,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { RELINK } from '../src/config.js';
 import type { Fetch } from '../src/oauth.js';
-import { createProxy } from '../src/proxy.js';
+import { bearerFetch, createProxy } from '../src/proxy.js';
 import { NotLinkedError, type Session } from '../src/session.js';
 import { startCourierServer } from './courierServer.js';
 
@@ -73,5 +73,16 @@ describe('createProxy', () => {
     await expect(agent.callTool({ name: 'check_delivery', arguments: {} })).rejects.toThrow();
     expect(afterFirst).toBeGreaterThan(0);
     expect(attempts).toBeGreaterThan(afterFirst);
+  });
+});
+
+describe('bearerFetch', () => {
+  it('cancels the 401 body before it resends', async () => {
+    let cancelled = false;
+    const unauthorized = new Response(new ReadableStream({ cancel: () => { cancelled = true; } }), { status: 401 });
+    const base: Fetch = async (_input, init) => (new Headers(init?.headers).get('authorization') === 'Bearer fresh' ? new Response('ok') : unauthorized);
+    const session: Session = { accessToken: async ({ force = false } = {}) => (force ? 'fresh' : 'stale') };
+    expect(await (await bearerFetch(session, base)('http://x.test/')).text()).toBe('ok');
+    expect(cancelled).toBe(true);
   });
 });
