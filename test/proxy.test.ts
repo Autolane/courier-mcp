@@ -111,6 +111,21 @@ describe('createProxy', () => {
     await agent.close();
   });
 
+  it('keeps the cause in the error the agent receives and in the log line', async () => {
+    const lines: string[] = [];
+    const unreachable: Fetch = async () => { throw new TypeError('fetch failed', { cause: new Error('getaddrinfo ENOTFOUND mcp.example.test') }); };
+    const proxy = createProxy({ server: 'https://mcp.example.test/courier-mcp', session: { accessToken: async () => 'good' }, fetch: unreachable, log: (line) => lines.push(line) });
+    const [agentSide, proxySide] = InMemoryTransport.createLinkedPair();
+    await proxy.connect(proxySide);
+    const agent = new Client({ name: 'agent', version: '0.0.0' });
+    await agent.connect(agentSide);
+    cleanups.push(() => agent.close(), () => proxy.close());
+    await expect(agent.callTool({ name: 'check_delivery', arguments: {} })).rejects.toThrow('fetch failed (getaddrinfo ENOTFOUND mcp.example.test)');
+    await expect(agent.listTools()).rejects.toThrow('fetch failed (getaddrinfo ENOTFOUND mcp.example.test)');
+    proxy.onerror?.(new TypeError('fetch failed', { cause: new Error('getaddrinfo ENOTFOUND mcp.example.test') }));
+    expect(lines).toContain('courier-mcp: fetch failed (getaddrinfo ENOTFOUND mcp.example.test)');
+  });
+
   it('reports a protocol error as one line on the log, with the message and nothing else', () => {
     const lines: string[] = [];
     const proxy = createProxy({ server: 'http://127.0.0.1:1/courier-mcp', session: { accessToken: async () => 'good' }, log: (line) => lines.push(line) });

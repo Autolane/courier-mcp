@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { USAGE, describeError, main, type CliDeps } from '../src/cli.js';
+import { USAGE, main, type CliDeps } from '../src/cli.js';
 import { RELINK, VERSION } from '../src/config.js';
 import { fileStore, type Saved } from '../src/store.js';
 import { startCourierServer } from './courierServer.js';
@@ -115,12 +115,6 @@ describe('main', () => {
     expect(await main(['logout'], deps({ fetch: failing }))).toBe(0);
     expect(err[0]).toBe('Could not reach Autolane to revoke the link (fetch failed); removing it from this machine anyway.');
     expect(await fileStore(join(xdg, 'autolane'), SERVER).read()).toBeNull();
-  });
-
-  it('describeError adds the cause, which says why a fetch failed', () => {
-    expect(describeError(new TypeError('fetch failed', { cause: new Error('getaddrinfo ENOTFOUND mcp.example.test') }))).toBe('fetch failed (getaddrinfo ENOTFOUND mcp.example.test)');
-    expect(describeError(new Error('plain'))).toBe('plain');
-    expect(describeError('odd')).toBe('odd');
   });
 
   it('logout names the cause when Autolane cannot be reached', async () => {
