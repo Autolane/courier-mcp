@@ -3,8 +3,8 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { CallToolRequestSchema, ListResourcesRequestSchema, ListToolsRequestSchema, ReadResourceRequestSchema, type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { VERSION } from './config.js';
+import { CallToolRequestSchema, ListResourceTemplatesRequestSchema, ListResourcesRequestSchema, ListToolsRequestSchema, ReadResourceRequestSchema, type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import { RELINK, VERSION } from './config.js';
 import type { Fetch } from './oauth.js';
 import { NotLinkedError, type Session } from './session.js';
 
@@ -23,12 +23,26 @@ export function bearerFetch(session: Session, base: Fetch = fetch): Fetch {
   };
 }
 
-export function createProxy(opts: { server: string; session: Session; fetch?: Fetch }): Server {
+/** Shown instead of the courier tools when the login is gone, so the agent can tell the user how to link. */
+const LOGIN_TOOL = 'autolane_courier_login_needed';
+const loginNeeded = `${RELINK}, then restart your agent.`;
+
+/** One line, no token: only the error's message, newlines folded. */
+const reportLine = (error: Error) => `courier-mcp: ${error.message.replace(/\s+/g, ' ')}`;
+
+export function createProxy(opts: { server: string; session: Session; fetch?: Fetch; log?: (line: string) => void }): Server {
+  const write = opts.log ?? ((line: string) => console.error(line));
+  let closed = false;
+  // Closing aborts the upstream stream, and that abort is not worth a line.
+  const log = (line: string) => {
+    if (!closed) write(line);
+  };
   let remote: Promise<Client> | null = null;
   /** Connects on first use, so the agent's handshake never waits on the network; a failed connect is retried next time. */
   const connected = (): Promise<Client> => {
     remote ??= (async () => {
       const client = new Client({ name: 'autolane-courier-mcp', version: VERSION });
+      client.onerror = (error) => log(reportLine(error));
       await client.connect(new StreamableHTTPClientTransport(new URL(opts.server), { fetch: bearerFetch(opts.session, opts.fetch) }));
       return client;
     })().catch((error: unknown) => {
@@ -39,17 +53,33 @@ export function createProxy(opts: { server: string; session: Session; fetch?: Fe
   };
 
   const proxy = new Server({ name: 'autolane-courier', version: VERSION }, { capabilities: { tools: {}, resources: {} } });
-  proxy.setRequestHandler(ListToolsRequestSchema, async (req) => (await connected()).listTools(req.params));
-  proxy.setRequestHandler(CallToolRequestSchema, async (req): Promise<CallToolResult> => {
+  proxy.onerror = (error) => log(reportLine(error));
+  proxy.onclose = () => {
+    closed = true;
+    const upstream = remote;
+    remote = null;
+    void upstream?.then((client) => client.close(), () => {});
+  };
+  proxy.setRequestHandler(ListToolsRequestSchema, async (req, extra) => {
     try {
-      return (await (await connected()).callTool(req.params)) as CallToolResult;
+      return await (await connected()).listTools(req.params, { signal: extra.signal });
     } catch (error) {
-      // The agent shows a tool error to the user, so the relink line reaches them.
+      if (error instanceof NotLinkedError) return { tools: [{ name: LOGIN_TOOL, description: loginNeeded, inputSchema: { type: 'object' as const, properties: {} } }] };
+      throw error;
+    }
+  });
+  proxy.setRequestHandler(CallToolRequestSchema, async (req, extra): Promise<CallToolResult> => {
+    // The agent shows a tool error to the user, so the relink line reaches them.
+    if (req.params.name === LOGIN_TOOL) return { isError: true, content: [{ type: 'text', text: loginNeeded }] };
+    try {
+      return (await (await connected()).callTool(req.params, undefined, { signal: extra.signal })) as CallToolResult;
+    } catch (error) {
       if (error instanceof NotLinkedError) return { isError: true, content: [{ type: 'text', text: error.message }] };
       throw error;
     }
   });
-  proxy.setRequestHandler(ListResourcesRequestSchema, async (req) => (await connected()).listResources(req.params));
-  proxy.setRequestHandler(ReadResourceRequestSchema, async (req) => (await connected()).readResource(req.params));
+  proxy.setRequestHandler(ListResourcesRequestSchema, async (req, extra) => (await connected()).listResources(req.params, { signal: extra.signal }));
+  proxy.setRequestHandler(ListResourceTemplatesRequestSchema, async (req, extra) => (await connected()).listResourceTemplates(req.params, { signal: extra.signal }));
+  proxy.setRequestHandler(ReadResourceRequestSchema, async (req, extra) => (await connected()).readResource(req.params, { signal: extra.signal }));
   return proxy;
 }
