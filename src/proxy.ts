@@ -3,8 +3,9 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { CallToolRequestSchema, ListResourceTemplatesRequestSchema, ListResourcesRequestSchema, ListToolsRequestSchema, ReadResourceRequestSchema, type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import { CallToolRequestSchema, McpError, ListResourceTemplatesRequestSchema, ListResourcesRequestSchema, ListToolsRequestSchema, ReadResourceRequestSchema, type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { RELINK, VERSION } from './config.js';
+import { describeError } from './errors.js';
 import type { Fetch } from './oauth.js';
 import { NotLinkedError, type Session } from './session.js';
 
@@ -28,7 +29,18 @@ const LOGIN_TOOL = 'autolane_courier_login_needed';
 const loginNeeded = `${RELINK}, then restart your agent.`;
 
 /** One line, no token: only the error's message, newlines folded. */
-const reportLine = (error: Error) => `courier-mcp: ${error.message.replace(/\s+/g, ' ')}`;
+const reportLine = (error: Error) => `courier-mcp: ${describeError(error).replace(/\s+/g, ' ')}`;
+
+/** The agent sees only an error's message, so a failure that keeps its reason in `cause` is rethrown with it spelled out. */
+async function withCause<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    const text = describeError(error);
+    if (error instanceof NotLinkedError || error instanceof McpError || !(error instanceof Error) || text === error.message) throw error;
+    throw new Error(text);
+  }
+}
 
 export function createProxy(opts: { server: string; session: Session; fetch?: Fetch; log?: (line: string) => void }): Server {
   const write = opts.log ?? ((line: string) => console.error(line));
@@ -62,7 +74,7 @@ export function createProxy(opts: { server: string; session: Session; fetch?: Fe
   };
   proxy.setRequestHandler(ListToolsRequestSchema, async (req, extra) => {
     try {
-      return await (await connected()).listTools(req.params, { signal: extra.signal });
+      return await withCause(async () => (await connected()).listTools(req.params, { signal: extra.signal }));
     } catch (error) {
       if (error instanceof NotLinkedError) return { tools: [{ name: LOGIN_TOOL, description: loginNeeded, inputSchema: { type: 'object' as const, properties: {} } }] };
       throw error;
@@ -72,14 +84,14 @@ export function createProxy(opts: { server: string; session: Session; fetch?: Fe
     // The agent shows a tool error to the user, so the relink line reaches them.
     if (req.params.name === LOGIN_TOOL) return { isError: true, content: [{ type: 'text', text: loginNeeded }] };
     try {
-      return (await (await connected()).callTool(req.params, undefined, { signal: extra.signal })) as CallToolResult;
+      return (await withCause(async () => (await connected()).callTool(req.params, undefined, { signal: extra.signal }))) as CallToolResult;
     } catch (error) {
       if (error instanceof NotLinkedError) return { isError: true, content: [{ type: 'text', text: error.message }] };
       throw error;
     }
   });
-  proxy.setRequestHandler(ListResourcesRequestSchema, async (req, extra) => (await connected()).listResources(req.params, { signal: extra.signal }));
-  proxy.setRequestHandler(ListResourceTemplatesRequestSchema, async (req, extra) => (await connected()).listResourceTemplates(req.params, { signal: extra.signal }));
-  proxy.setRequestHandler(ReadResourceRequestSchema, async (req, extra) => (await connected()).readResource(req.params, { signal: extra.signal }));
+  proxy.setRequestHandler(ListResourcesRequestSchema, async (req, extra) => withCause(async () => (await connected()).listResources(req.params, { signal: extra.signal })));
+  proxy.setRequestHandler(ListResourceTemplatesRequestSchema, async (req, extra) => withCause(async () => (await connected()).listResourceTemplates(req.params, { signal: extra.signal })));
+  proxy.setRequestHandler(ReadResourceRequestSchema, async (req, extra) => withCause(async () => (await connected()).readResource(req.params, { signal: extra.signal })));
   return proxy;
 }

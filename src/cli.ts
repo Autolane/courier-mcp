@@ -4,6 +4,7 @@ import { parseArgs } from 'node:util';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { RELINK, VERSION, configDir, serverUrl } from './config.js';
+import { describeError } from './errors.js';
 import { login } from './login.js';
 import { discover, revoke, type Fetch } from './oauth.js';
 import { createProxy } from './proxy.js';
@@ -29,12 +30,6 @@ export interface CliDeps {
   openUrl?: (url: string) => void;
   /** serve's transport; stdio unless a test passes one. */
   transport?: () => Transport;
-}
-
-/** An error's message, with its cause's in parentheses: fetch says only "fetch failed" and keeps the reason in `cause`. */
-export function describeError(error: unknown): string {
-  if (!(error instanceof Error)) return String(error);
-  return error.cause instanceof Error ? `${error.message} (${error.cause.message})` : error.message;
 }
 
 /** Runs one command and resolves to its exit code, or to null for serve, which keeps running. */
