@@ -1,5 +1,7 @@
 // The courier authorization server, over fetch: RFC 8414 discovery, RFC 7591 registration of a device-only
 // public client (AUT-3861), the RFC 8628 device grant (contract A91), refresh with rotation, RFC 7009 revoke.
+import { describeError } from './errors.js';
+
 export type Fetch = typeof globalThis.fetch;
 
 /** No request may hang: a refresh stuck past the lock's stale limit would let a second process reuse the refresh token. */
@@ -47,7 +49,9 @@ export class OAuthError extends Error {
 const ENDPOINT_KEYS = ['registration_endpoint', 'device_authorization_endpoint', 'token_endpoint', 'revocation_endpoint'] as const;
 
 async function json<T>(res: Response, url: string): Promise<T> {
-  const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  const parsed: unknown = await res.json().catch(() => null);
+  // A body that is not an object (null, a number) is no better than none.
+  const body = (typeof parsed === 'object' && parsed !== null ? parsed : {}) as Record<string, unknown>;
   if (!res.ok) {
     const description = typeof body.error_description === 'string' ? body.error_description : undefined;
     throw new OAuthError(typeof body.error === 'string' ? body.error : `http_${res.status}`, description, res.status, new URL(url).pathname);
@@ -102,7 +106,8 @@ export async function startDevice(endpoints: Endpoints, clientId: string, f: Fet
   return json<DeviceStart>(await f(endpoints.device_authorization_endpoint, form({ client_id: clientId })), endpoints.device_authorization_endpoint);
 }
 
-const isTransient = (error: unknown) => error instanceof TypeError || (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError'));
+/** A request that did not complete: a timeout, or fetch's "fetch failed" (its reason is in `cause`). Any other error is a bug, and stops the poll. */
+const isTransient = (error: unknown) => error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError' || (error instanceof TypeError && error.message === 'fetch failed'));
 
 /** RFC 8628 sections 3.4 and 3.5: wait `interval` seconds between polls, five more after each slow_down, until the user links or the code expires. */
 export async function pollDevice(
@@ -117,15 +122,20 @@ export async function pollDevice(
   // The server still accepts an approval for 30 seconds after expires_in, so the local deadline does too.
   const deadline = now() + start.expires_in * 1000 + 30_000;
   let interval = start.interval ?? 5;
+  let lastError: unknown;
   for (;;) {
     await sleep(interval * 1000);
-    if (now() > deadline) throw new OAuthError('expired_token', 'The link expired before your phone was linked; run login again', 400);
+    if (now() > deadline) {
+      const last = lastError === undefined ? '' : ` (last error: ${describeError(lastError)})`;
+      throw new OAuthError('expired_token', `The link expired before your phone was linked; run login again${last}`, 400);
+    }
     try {
       return await tokenSet(await f(endpoints.token_endpoint, form({ grant_type: DEVICE_GRANT, device_code: start.device_code, client_id: clientId })), endpoints.token_endpoint);
     } catch (error) {
       if (error instanceof OAuthError && error.code === 'authorization_pending') continue;
       // RFC 8628 section 3.5: a slow_down, a dropped connection, a timeout or a 5xx all mean "wait longer and ask again".
       if ((error instanceof OAuthError && (error.code === 'slow_down' || (error.status >= 500 && error.code !== 'invalid_response'))) || isTransient(error)) {
+        if (!(error instanceof OAuthError && error.code === 'slow_down')) lastError = error;
         interval += 5;
         continue;
       }

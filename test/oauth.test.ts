@@ -99,6 +99,37 @@ describe('pollDevice', () => {
     expect(sleeps).toEqual([5_000, 10_000]);
   });
 
+  it('fails at once on an error that is not a failed request, a programming bug included', async () => {
+    let calls = 0;
+    const buggy: typeof globalThis.fetch = async () => {
+      calls += 1;
+      throw new TypeError("Cannot read properties of undefined (reading 'x')");
+    };
+    await expect(pollDevice(ENDPOINTS, 'mc_1', start, { fetch: buggy, sleep: async () => {}, now: () => 0 })).rejects.toThrow('Cannot read properties of undefined');
+    expect(calls).toBe(1);
+  });
+
+  it('fails at once on a 200 whose body is null', async () => {
+    const { fetch, calls } = fakeOAuth({ token: [{ body: null }] });
+    await expect(pollDevice(ENDPOINTS, 'mc_1', start, { fetch, sleep: async () => {}, now: () => 0 })).rejects.toMatchObject({ code: 'invalid_response' });
+    expect(calls).toHaveLength(1);
+  });
+
+  it('names the last failure when the code expires after transient failures', async () => {
+    const down: typeof globalThis.fetch = async () => { throw new TypeError('fetch failed', { cause: new Error('getaddrinfo ENOTFOUND mcp.example.test') }); };
+    let clock = 0;
+    const err = await pollDevice(ENDPOINTS, 'mc_1', start, { fetch: down, sleep: async () => { clock += 400_000; }, now: () => clock }).catch((e: unknown) => e);
+    expect(err).toMatchObject({ code: 'expired_token' });
+    expect((err as Error).message).toContain('(last error: fetch failed (getaddrinfo ENOTFOUND mcp.example.test))');
+  });
+
+  it('says nothing of a last error when there was none', async () => {
+    const { fetch } = fakeOAuth({ token: [oauthError('authorization_pending')] });
+    let clock = 0;
+    const err = await pollDevice(ENDPOINTS, 'mc_1', start, { fetch, sleep: async () => { clock += 626_000; }, now: () => clock }).catch((e: unknown) => e);
+    expect((err as Error).message).not.toContain('last error');
+  });
+
   it('keeps polling after a timeout, more slowly', async () => {
     let n = 0;
     const slow: typeof globalThis.fetch = async (input, init) => {
