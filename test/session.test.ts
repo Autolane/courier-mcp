@@ -55,6 +55,17 @@ describe('createSession', () => {
     const { fetch, calls } = fakeOAuth({ token: [tokenReply('at-1', 'rt-1')] });
     expect(await createSession({ store, endpoints, fetch, now: () => NOW }).accessToken({ force: true })).toBe('at-1');
     expect(calls).toHaveLength(1);
+    expect(await store.read()).toEqual(saved({ access_token: 'at-1', refresh_token: 'rt-1', access_expires_at: NOW + 3_600_000 }));
+  });
+
+  it('looks up the endpoints before it takes the lock, so only the refresh runs inside it', async () => {
+    await store.write(saved({ access_expires_at: NOW - 1 }));
+    let held = false;
+    const locked: TokenStore = { ...store, read: () => store.read(), write: (s) => store.write(s), remove: () => store.remove(), withLock: async (fn) => { held = true; try { return await store.withLock(fn); } finally { held = false; } } };
+    const seen: boolean[] = [];
+    const { fetch } = fakeOAuth({ token: [tokenReply('at-1', 'rt-1')] });
+    await createSession({ store: locked, endpoints: async () => { seen.push(held); return ENDPOINTS; }, fetch, now: () => NOW }).accessToken();
+    expect(seen).toEqual([false]);
   });
 
   it('two sessions refreshing at once make one network call and end with the same token', async () => {

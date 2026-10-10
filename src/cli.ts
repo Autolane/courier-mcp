@@ -64,21 +64,23 @@ export async function main(argv: string[], deps: CliDeps): Promise<number | null
     case 'login':
       await login({ server, store, noBrowser: values['no-browser'], print: deps.out, openUrl: deps.openUrl, fetch: deps.fetch, sleep: deps.sleep, now });
       return 0;
-    case 'logout': {
-      const saved = await store.read();
-      if (!saved) {
-        deps.out('This machine is not linked.');
+    case 'logout':
+      // Under the lock: a refresh in an agent must not rotate the token between our read and our revoke.
+      return store.withLock(async () => {
+        const saved = await store.read();
+        if (!saved) {
+          deps.out('This machine is not linked.');
+          return 0;
+        }
+        try {
+          await revoke(await discover(server, deps.fetch), saved.client_id, saved.refresh_token, deps.fetch);
+        } catch (error) {
+          deps.err(`Could not reach Autolane to revoke the link (${describeError(error)}); removing it from this machine anyway.`);
+        }
+        await store.remove();
+        deps.out('Logged out. This machine is no longer linked.');
         return 0;
-      }
-      try {
-        await revoke(await discover(server, deps.fetch), saved.client_id, saved.refresh_token, deps.fetch);
-      } catch (error) {
-        deps.err(`Could not reach Autolane to revoke the link (${describeError(error)}); removing it from this machine anyway.`);
-      }
-      await store.remove();
-      deps.out('Logged out. This machine is no longer linked.');
-      return 0;
-    }
+      });
     case 'status': {
       const saved = await store.read();
       if (!saved) {

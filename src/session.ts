@@ -30,13 +30,15 @@ export function createSession(opts: { store: TokenStore; endpoints: () => Promis
       const seen = await opts.store.read();
       if (!seen) throw new NotLinkedError();
       if (!force && seen.access_expires_at - now() > REFRESH_EARLY_MS) return seen.access_token;
+      // Look the endpoints up first, so only the refresh itself runs while the lock is held.
+      const endpoints = await opts.endpoints();
       return opts.store.withLock(async () => {
         const current = await opts.store.read();
         if (!current) throw new NotLinkedError();
         if (current.refresh_token !== seen.refresh_token) return current.access_token;
         let tokens: TokenSet;
         try {
-          tokens = await refresh(await opts.endpoints(), current.client_id, current.refresh_token, opts.fetch);
+          tokens = await refresh(endpoints, current.client_id, current.refresh_token, opts.fetch);
         } catch (error) {
           // invalid_grant: the refresh token is spent or revoked. invalid_client: the server forgot this client. Both need a new login.
           if (error instanceof OAuthError && (error.code === 'invalid_grant' || error.code === 'invalid_client')) throw new NotLinkedError();
