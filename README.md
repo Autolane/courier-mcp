@@ -4,7 +4,32 @@ Use [Autolane Courier](https://docs.goautolane.com/courier/get-started) from an 
 
 This package runs a small MCP server on your machine. It links to your phone once, keeps its own login, and passes your agent's requests to Autolane at `https://mcp.goautolane.com/courier-mcp`. Any agent that can run a local (stdio) MCP server can use it, even one without OAuth.
 
-## Link your phone
+## You probably don't need this package
+
+Most AI assistants connect to Autolane Courier directly: add `https://mcp.goautolane.com/courier-mcp` as a custom connector or MCP server, link your phone, and you're done. Nothing to install.
+
+- **Claude** (claude.ai, Claude Desktop, phone apps): Customize, Connectors, + Add, Add custom connector. Name `Autolane Courier`, URL `https://mcp.goautolane.com/courier-mcp`. Select Connect, then enter your mobile number and the 6-digit code Autolane texts you.
+- **ChatGPT** (web, and your dots): chatgpt.com/plugins, +, Add custom MCP server. Name `Autolane Courier`, Server URL `https://mcp.goautolane.com/courier-mcp`, Authentication OAuth (leave client ID and secret empty). Select Connect and link your phone.
+- **Claude Code**: `claude mcp add --transport http --scope user autolane-courier https://mcp.goautolane.com/courier-mcp`, then `claude mcp login autolane-courier`.
+- **Codex** (CLI, IDE extension, ChatGPT desktop app): `codex mcp add autolane-courier --url https://mcp.goautolane.com/courier-mcp`. Codex opens your browser; if not, run `codex mcp login autolane-courier`.
+- **OpenClaw**: `openclaw mcp add autolane-courier --url https://mcp.goautolane.com/courier-mcp --transport streamable-http --auth oauth`, then `openclaw mcp login autolane-courier`.
+- **Hermes**: add this custom MCP entry, then open its config and select Retry, then Authorize:
+
+  ```json
+  { "mcpServers": { "Courier by Autolane": { "url": "https://mcp.goautolane.com/courier-mcp", "auth": "oauth" } } }
+  ```
+
+- **Muse** (Meta AI): ask "Connect the Autolane Courier MCP at https://mcp.goautolane.com/courier-mcp", open the link it shows, and check the code matches.
+
+Full guides: [docs.goautolane.com/courier/get-started](https://docs.goautolane.com/courier/get-started).
+
+**Terminal agent on another machine** (over SSH or on a server)? After you link your phone, the Autolane page shows a `curl` command; run it on the machine where the agent runs.
+
+## When to use this package
+
+Use it when your agent runs on a machine with no browser and you'd rather link with a code from your phone, or when your agent can run a local (stdio) MCP server but can't sign in to one with OAuth.
+
+### Link your phone
 
 On the machine where your agent runs:
 
@@ -14,7 +39,7 @@ Open the link it prints on any device (your phone works), check the page shows t
 
 Autolane Courier is invite-only for now. If the page says the service isn't available for your number, [join the waitlist](https://goautolane.com/autolane-courier).
 
-## Add it to your agent
+### Add it to your agent
 
 Claude Code:
 
