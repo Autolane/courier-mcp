@@ -101,6 +101,14 @@ describe('createSession', () => {
     expect(await store.read()).not.toBeNull();
   });
 
+  it('keeps the saved login when the refresh answers 200 without tokens', async () => {
+    const before = saved({ access_expires_at: NOW - 1 });
+    await store.write(before);
+    const { fetch } = fakeOAuth({ token: [{ body: {} }] });
+    await expect(createSession({ store, endpoints, fetch, now: () => NOW }).accessToken()).rejects.toMatchObject({ code: 'invalid_response' });
+    expect(await store.read()).toEqual(before);
+  });
+
   it('passes any other refresh failure through', async () => {
     await store.write(saved({ access_expires_at: NOW - 1 }));
     const { fetch } = fakeOAuth({ token: [oauthError('server_error', 500)] });
