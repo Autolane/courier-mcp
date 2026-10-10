@@ -8,19 +8,27 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # A required reviewer on this environment approves each release, and holds NPM_TOKEN.
+    environment: npm-publish
     permissions:
       contents: read
       id-token: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+      - name: The tag points at a commit on main
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
       - run: npm ci --ignore-scripts
       - run: npm test
+      - run: npm run build
       - name: The tag matches package.json
         run: test "v$(node -p 'require("./package.json").version')" = "$GITHUB_REF_NAME"
-      - run: npm publish --provenance --access public
+      # The only step that sees the token. --ignore-scripts skips prepublishOnly, so the build above is the one that ships.
+      - run: npm publish --provenance --access public --ignore-scripts
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
