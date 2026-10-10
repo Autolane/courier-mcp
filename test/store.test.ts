@@ -44,6 +44,17 @@ describe('fileStore', () => {
     expect(await fileStore(dir, SERVER).read()).toBeNull();
   });
 
+  it('reads a damaged or incomplete file as not linked, without throwing', async () => {
+    const store = fileStore(dir, SERVER);
+    await store.write(saved);
+    await writeFile(store.path, '{ "server": "x", "refresh_token": SECRETREFRESH');
+    expect(await store.read()).toBeNull();
+    await writeFile(store.path, JSON.stringify({ server: SERVER, client_id: 'mc_1', access_token: 'at', access_expires_at: 1 }));
+    expect(await store.read()).toBeNull();
+    await writeFile(store.path, 'null');
+    expect(await store.read()).toBeNull();
+  });
+
   it('remove deletes the file and is fine when there is none', async () => {
     const store = fileStore(dir, SERVER);
     await store.remove();

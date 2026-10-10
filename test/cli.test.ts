@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -55,6 +55,18 @@ describe('main', () => {
     expect(out[0]).toContain(`valid until ${new Date(NOW + 3_600_000).toISOString()}`);
     expect(out[0]).toContain(join(xdg, 'autolane', 'courier-mcp.json'));
     expect(out[0]).not.toContain('secret');
+  });
+
+  it('a damaged token file reads as not linked, and the parse error never reaches the output', async () => {
+    await mkdir(join(xdg, 'autolane'), { recursive: true });
+    await writeFile(join(xdg, 'autolane', 'courier-mcp.json'), '{ "refresh_token": SECRETREFRESH');
+    expect(await main(['status'], deps())).toBe(1);
+    expect(await main([], deps())).toBe(1);
+    expect(out).toEqual([`Not linked to ${SERVER}.`]);
+    expect(err).toEqual([RELINK]);
+    const { fetch } = fakeOAuth();
+    expect(await main(['login', '--no-browser'], deps({ fetch }))).toBe(0);
+    expect(await fileStore(join(xdg, 'autolane'), SERVER).read()).toMatchObject({ client_id: 'mc_new', access_token: 'at-1' });
   });
 
   it('status says an expired access token refreshes on the next call', async () => {
