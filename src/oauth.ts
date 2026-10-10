@@ -1,6 +1,6 @@
 // The courier authorization server, over fetch: RFC 8414 discovery, RFC 7591 registration of a device-only
 // public client (AUT-3861), the RFC 8628 device grant (contract A91), refresh with rotation, RFC 7009 revoke.
-import { describeError } from './errors.js';
+import { describeError, plain } from './errors.js';
 
 export type Fetch = typeof globalThis.fetch;
 
@@ -84,9 +84,9 @@ export async function discover(server: string, f: Fetch = fetch): Promise<Endpoi
     if (typeof meta[key] !== 'string') throw new Error(`${server} does not offer ${key}; is it a Courier MCP URL?`);
   }
   // A metadata document is trusted only if it names this server and keeps every endpoint on its origin.
-  if (meta.issuer !== server) throw new Error(`${server} metadata has the wrong issuer ${String(meta.issuer)}; is it a Courier MCP URL?`);
+  if (meta.issuer !== server) throw new Error(`${server} metadata has the wrong issuer ${plain(String(meta.issuer))}; is it a Courier MCP URL?`);
   for (const key of ENDPOINT_KEYS) {
-    if (new URL(meta[key] as string).origin !== url.origin) throw new Error(`${server} metadata puts ${key} on another origin: ${meta[key] as string}`);
+    if (new URL(meta[key] as string).origin !== url.origin) throw new Error(`${server} metadata puts ${key} on another origin: ${plain(meta[key] as string)}`);
   }
   return meta as Endpoints;
 }
@@ -105,7 +105,12 @@ export async function register(endpoints: Endpoints, clientName: string, f: Fetc
 }
 
 export async function startDevice(endpoints: Endpoints, clientId: string, f: Fetch = fetch): Promise<DeviceStart> {
-  return json<DeviceStart>(await f(endpoints.device_authorization_endpoint, form({ client_id: clientId })), endpoints.device_authorization_endpoint);
+  const reply = await json<Partial<Record<keyof DeviceStart, unknown>>>(await f(endpoints.device_authorization_endpoint, form({ client_id: clientId })), endpoints.device_authorization_endpoint);
+  const text = (value: unknown) => typeof value === 'string';
+  if (!text(reply.device_code) || !text(reply.user_code) || !text(reply.verification_uri) || typeof reply.expires_in !== 'number' || !Number.isFinite(reply.expires_in) || (reply.interval !== undefined && typeof reply.interval !== 'number')) {
+    throw new OAuthError('invalid_response', 'The device authorization response is malformed', 502);
+  }
+  return reply as unknown as DeviceStart;
 }
 
 /** A request that did not complete: a timeout, or fetch's "fetch failed" (its reason is in `cause`). Any other error is a bug, and stops the poll. */
