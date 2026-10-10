@@ -1,9 +1,9 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CLIENT_NAME } from '../src/config.js';
-import { login } from '../src/login.js';
+import { login, openBrowser } from '../src/login.js';
 import { fileStore, type TokenStore } from '../src/store.js';
 import { SERVER, fakeOAuth, oauthError, tokenReply } from './fakes.js';
 
@@ -125,5 +125,27 @@ describe('login', () => {
     const { fetch } = fakeOAuth({ token: [oauthError('expired_token')] });
     await expect(run(fetch, true).done).rejects.toMatchObject({ code: 'expired_token' });
     expect(await store.read()).toBeNull();
+  });
+});
+
+describe('openBrowser', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  // Windows runs explorer.exe by absolute path, which exists, so this check is for macOS and Linux.
+  it.skipIf(process.platform === 'win32')('does not throw, and leaves no unhandled error, on a machine with no opener', async () => {
+    vi.stubEnv('PATH', root);
+    const unhandled: unknown[] = [];
+    const seen = (error: unknown) => unhandled.push(error);
+    process.on('uncaughtException', seen);
+    process.on('unhandledRejection', seen);
+    try {
+      expect(() => openBrowser(`${SERVER}/oauth/device`)).not.toThrow();
+      // The spawn failure arrives on a later tick.
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off('uncaughtException', seen);
+      process.off('unhandledRejection', seen);
+    }
   });
 });
