@@ -92,6 +92,8 @@ export async function startDevice(endpoints: Endpoints, clientId: string, f: Fet
   return json<DeviceStart>(await f(endpoints.device_authorization_endpoint, form({ client_id: clientId })));
 }
 
+const isTransient = (error: unknown) => error instanceof TypeError || (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError'));
+
 /** RFC 8628 sections 3.4 and 3.5: wait `interval` seconds between polls, five more after each slow_down, until the user links or the code expires. */
 export async function pollDevice(
   endpoints: Endpoints,
@@ -102,7 +104,8 @@ export async function pollDevice(
   const f = opts.fetch ?? fetch;
   const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const now = opts.now ?? Date.now;
-  const deadline = now() + start.expires_in * 1000;
+  // The server still accepts an approval for 30 seconds after expires_in, so the local deadline does too.
+  const deadline = now() + start.expires_in * 1000 + 30_000;
   let interval = start.interval ?? 5;
   for (;;) {
     await sleep(interval * 1000);
@@ -110,9 +113,9 @@ export async function pollDevice(
     try {
       return await tokenSet(await f(endpoints.token_endpoint, form({ grant_type: DEVICE_GRANT, device_code: start.device_code, client_id: clientId })));
     } catch (error) {
-      if (!(error instanceof OAuthError)) throw error;
-      if (error.code === 'authorization_pending') continue;
-      if (error.code === 'slow_down') {
+      if (error instanceof OAuthError && error.code === 'authorization_pending') continue;
+      // RFC 8628 section 3.5: a slow_down, a dropped connection, a timeout or a 5xx all mean "wait longer and ask again".
+      if ((error instanceof OAuthError && (error.code === 'slow_down' || (error.status >= 500 && error.code !== 'invalid_response'))) || isTransient(error)) {
         interval += 5;
         continue;
       }

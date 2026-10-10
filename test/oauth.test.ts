@@ -55,23 +55,56 @@ describe('pollDevice', () => {
     expect(sleeps).toEqual([5_000]);
   });
 
-  it('stops with expired_token once the code has expired, without another request', async () => {
+  it('stops with expired_token once the code and the server grace period have passed, without another request', async () => {
     const { fetch, calls } = fakeOAuth({ token: [oauthError('authorization_pending')] });
     let clock = 0;
-    const err = await pollDevice(ENDPOINTS, 'mc_1', start, { fetch, sleep: async (ms) => { clock += ms + 600_000; }, now: () => clock }).catch((e: unknown) => e);
+    const err = await pollDevice(ENDPOINTS, 'mc_1', start, { fetch, sleep: async (ms) => { clock += ms + 626_000; }, now: () => clock }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(OAuthError);
     expect(err).toMatchObject({ code: 'expired_token' });
     expect(calls).toHaveLength(0);
   });
 
-  it('passes any other refusal through (the server expired the code)', async () => {
-    const { fetch } = fakeOAuth({ token: [oauthError('expired_token')] });
-    await expect(pollDevice(ENDPOINTS, 'mc_1', start, { fetch, sleep: async () => {}, now: () => 0 })).rejects.toMatchObject({ code: 'expired_token' });
+  it('still polls in the 30 second grace after expires_in, for a late approval', async () => {
+    const { fetch, calls } = fakeOAuth();
+    let clock = 0;
+    await pollDevice(ENDPOINTS, 'mc_1', start, { fetch, sleep: async (ms) => { clock += ms + 610_000; }, now: () => clock });
+    expect(calls).toHaveLength(1);
   });
 
-  it('passes a network failure through', async () => {
-    const failing = async () => { throw new TypeError('fetch failed'); };
-    await expect(pollDevice(ENDPOINTS, 'mc_1', start, { fetch: failing, sleep: async () => {}, now: () => 0 })).rejects.toThrow('fetch failed');
+  it.each(['expired_token', 'access_denied', 'invalid_client', 'invalid_request'])('stops on %s', async (code) => {
+    const { fetch, calls } = fakeOAuth({ token: [oauthError(code)] });
+    await expect(pollDevice(ENDPOINTS, 'mc_1', start, { fetch, sleep: async () => {}, now: () => 0 })).rejects.toMatchObject({ code });
+    expect(calls).toHaveLength(1);
+  });
+
+  it('keeps polling after a network failure, more slowly', async () => {
+    let n = 0;
+    const flaky: typeof globalThis.fetch = async (input, init) => {
+      if (n++ === 0) throw new TypeError('fetch failed');
+      return fakeOAuth().fetch(input, init);
+    };
+    const sleeps: number[] = [];
+    const tokens = await pollDevice(ENDPOINTS, 'mc_1', start, { fetch: flaky, sleep: async (ms) => { sleeps.push(ms); }, now: () => 0 });
+    expect(tokens.access_token).toBe('at-1');
+    expect(sleeps).toEqual([5_000, 10_000]);
+  });
+
+  it('keeps polling after a timeout, more slowly', async () => {
+    let n = 0;
+    const slow: typeof globalThis.fetch = async (input, init) => {
+      if (n++ === 0) throw new DOMException('The operation timed out', 'TimeoutError');
+      return fakeOAuth().fetch(input, init);
+    };
+    const sleeps: number[] = [];
+    await pollDevice(ENDPOINTS, 'mc_1', start, { fetch: slow, sleep: async (ms) => { sleeps.push(ms); }, now: () => 0 });
+    expect(sleeps).toEqual([5_000, 10_000]);
+  });
+
+  it('keeps polling after a 5xx, more slowly', async () => {
+    const { fetch } = fakeOAuth({ token: [{ status: 503, body: 'down' }, tokenReply('at-1', 'rt-1')] });
+    const sleeps: number[] = [];
+    await pollDevice(ENDPOINTS, 'mc_1', start, { fetch, sleep: async (ms) => { sleeps.push(ms); }, now: () => 0 });
+    expect(sleeps).toEqual([5_000, 10_000]);
   });
 });
 
