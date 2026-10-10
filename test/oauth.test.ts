@@ -142,6 +142,14 @@ describe('pollDevice', () => {
     expect((err as Error).message).toContain('(last error: fetch failed (getaddrinfo ENOTFOUND mcp.example.test))');
   });
 
+  it('does not count slow_down as a last error', async () => {
+    const { fetch } = fakeOAuth({ token: [oauthError('slow_down')] });
+    let clock = 0;
+    const err = await pollDevice(ENDPOINTS, 'mc_1', start, { fetch, sleep: async () => { clock += 400_000; }, now: () => clock }).catch((e: unknown) => e);
+    expect(err).toMatchObject({ code: 'expired_token' });
+    expect((err as Error).message).not.toContain('(last error');
+  });
+
   it('says nothing of a last error when there was none', async () => {
     const { fetch } = fakeOAuth({ token: [oauthError('authorization_pending')] });
     let clock = 0;
@@ -186,6 +194,15 @@ describe('discover with control characters in the server-supplied values', () =>
     const err = await discover(SERVER, fetch).then(() => new Error('resolved'), (e: Error) => e);
     expect(err.message).toContain('https://other.example.test/[2Jx');
     expect(err.message).not.toMatch(/[\x00-\x1f\x7f]/u);
+  });
+});
+
+describe('discover with a control character in an endpoint on another origin', () => {
+  it('strips it from the error text', async () => {
+    const { fetch } = fakeOAuth({ metadata: [{ body: { issuer: SERVER, ...ENDPOINTS, token_endpoint: 'https://evil.example.test/\u001b[31mx' } }] });
+    const err = await discover(SERVER, fetch).then(() => new Error('resolved'), (e: Error) => e);
+    expect(err.message).toContain('token_endpoint on another origin: https://evil.example.test/[31mx');
+    expect(err.message).not.toContain('\u001b');
   });
 });
 
