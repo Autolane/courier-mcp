@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { RELINK } from '../src/config.js';
@@ -145,6 +146,36 @@ describe('createProxy', () => {
     upstream.onerror!(new Error('late'));
     proxy.onerror?.(new Error('late too'));
     expect(lines).toEqual(['courier-mcp: upstream boom']);
+  });
+
+  it('keeps an upstream JSON-RPC error code and message through the proxy', async () => {
+    const courier = await startCourierServer('good');
+    cleanups.push(courier.close);
+    const agent = await agentThrough(courier.url, { accessToken: async () => 'good' });
+    const err = await agent.callTool({ name: 'bad_args', arguments: {} }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(McpError);
+    expect((err as McpError).code).toBe(ErrorCode.InvalidParams);
+    expect((err as McpError).message).toContain('bad args');
+  });
+
+  describe('an unreachable upstream, on every forwarded request', () => {
+    const reason = 'fetch failed (getaddrinfo ENOTFOUND mcp.example.test)';
+    const unreachable = async (): Promise<Client> =>
+      agentThrough('https://mcp.example.test/courier-mcp', { accessToken: async () => 'good' }, async () => {
+        throw new TypeError('fetch failed', { cause: new Error('getaddrinfo ENOTFOUND mcp.example.test') });
+      });
+
+    it('resources/list surfaces the cause', async () => {
+      await expect((await unreachable()).listResources()).rejects.toThrow(reason);
+    });
+
+    it('resources/templates/list surfaces the cause', async () => {
+      await expect((await unreachable()).listResourceTemplates()).rejects.toThrow(reason);
+    });
+
+    it('resources/read surfaces the cause', async () => {
+      await expect((await unreachable()).readResource({ uri: 'courier://description' })).rejects.toThrow(reason);
+    });
   });
 
   it('reports a protocol error as one line on the log, with the message and nothing else', () => {
