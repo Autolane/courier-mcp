@@ -31,6 +31,11 @@ export interface StoreOptions {
   pollMs?: number;
 }
 
+const isSaved = (value: unknown): value is Saved => {
+  const v = value as Record<string, unknown> | null;
+  return typeof v === 'object' && v !== null && typeof v.server === 'string' && typeof v.client_id === 'string' && typeof v.access_token === 'string' && typeof v.refresh_token === 'string' && typeof v.access_expires_at === 'number';
+};
+
 const isMissing = (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT';
 
 export function fileStore(dir: string, server: string, opts: StoreOptions = {}): TokenStore {
@@ -52,8 +57,15 @@ export function fileStore(dir: string, server: string, opts: StoreOptions = {}):
         if (isMissing(error)) return null;
         throw error;
       }
-      const saved = JSON.parse(text) as Saved;
-      return saved.server === server ? saved : null;
+      // A damaged file reads as not linked, so login can write over it. The parse error is dropped: V8 quotes the file in it.
+      const saved: unknown = (() => {
+        try {
+          return JSON.parse(text);
+        } catch {
+          return null;
+        }
+      })();
+      return isSaved(saved) && saved.server === server ? saved : null;
     },
     async write(saved) {
       await ensureDir();
