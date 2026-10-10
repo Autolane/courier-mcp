@@ -116,9 +116,12 @@ describe('login', () => {
   });
 
   it('gives up when the freshly registered client is refused too', async () => {
+    await store.write({ server: SERVER, client_id: 'mc_old', access_token: 'a', refresh_token: 'r', access_expires_at: 0 });
     const { fetch, calls } = fakeOAuth({ device: [oauthError('invalid_client', 401), oauthError('invalid_client', 401)] });
     await expect(run(fetch, true).done).rejects.toMatchObject({ code: 'invalid_client' });
     expect(calls.filter((c) => c.url.endsWith('/oauth/register'))).toHaveLength(1);
+    expect(calls.filter((c) => c.url.endsWith('/oauth/device_authorization'))).toHaveLength(2);
+    expect((await store.read())?.client_id).toBe('mc_old');
   });
 
   it('saves nothing when the link expires', async () => {
