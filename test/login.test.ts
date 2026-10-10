@@ -83,18 +83,30 @@ describe('login', () => {
     await store.write({ server: SERVER, client_id: 'mc_old', access_token: 'a', refresh_token: 'rt-old', access_expires_at: 0 });
     let held = false;
     const writes: boolean[] = [];
-    const locked: TokenStore = { ...store, read: () => store.read(), remove: () => store.remove(), write: async (s) => { writes.push(held); await store.write(s); }, withLock: async (fn) => { held = true; try { return await store.withLock(fn); } finally { held = false; } } };
+    const reads: boolean[] = [];
+    const locked: TokenStore = { ...store, read: async () => { reads.push(held); return store.read(); }, remove: () => store.remove(), write: async (s) => { writes.push(held); await store.write(s); }, withLock: async (fn) => { held = true; try { return await store.withLock(fn); } finally { held = false; } } };
     const { fetch, calls } = fakeOAuth();
     await login({ server: SERVER, store: locked, noBrowser: true, print: () => {}, fetch, sleep: async () => {}, now: () => NOW });
     expect(writes).toEqual([true]);
+    // The saved client is read outside the lock; the login being replaced is read inside it, so a concurrent refresh cannot slip between.
+    expect(reads).toEqual([false, true]);
     expect(calls.find((c) => c.url.endsWith('/oauth/revoke'))?.form).toEqual({ token: 'rt-old', token_type_hint: 'refresh_token', client_id: 'mc_old' });
   });
 
   it('still links when revoking the old refresh token fails', async () => {
     await store.write({ server: SERVER, client_id: 'mc_old', access_token: 'a', refresh_token: 'rt-old', access_expires_at: 0 });
     const { fetch } = fakeOAuth({ revoke: [{ status: 503, body: {} }] });
-    await run(fetch, true).done;
+    const { done, printed } = run(fetch, true);
+    await done;
     expect((await store.read())?.refresh_token).toBe('rt-1');
+    expect(printed.at(-2)).toBe('Could not revoke the previous link (http_503 from /courier-mcp/oauth/revoke); it expires on its own.');
+  });
+
+  it('strips a control character from the middle of the user code, so it cannot add a line to the prompt', async () => {
+    const { fetch } = fakeOAuth({ device: [{ body: { device_code: 'dev-1', user_code: 'BCDF\nFAKE: run this-GHJK', verification_uri: `${SERVER}/oauth/device`, expires_in: 600, interval: 5 } }] });
+    const { done, printed } = run(fetch, true);
+    await done;
+    expect(printed[0]).toContain('the code BCDFFAKE: run this-GHJK.');
   });
 
   it('reuses the client already saved for this server', async () => {

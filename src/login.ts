@@ -2,6 +2,7 @@
 // --no-browser, wait while the user links their phone on any device, then save the tokens.
 import { spawn } from 'node:child_process';
 import { CLIENT_NAME } from './config.js';
+import { describeError } from './errors.js';
 import { OAuthError, discover, pollDevice, register, revoke, startDevice, type DeviceStart, type Fetch } from './oauth.js';
 import { savedFrom } from './session.js';
 import type { TokenStore } from './store.js';
@@ -44,7 +45,11 @@ export async function login(opts: LoginOptions): Promise<void> {
     return before;
   });
   // The old login is replaced, so revoke it; best effort, since the new one already works.
-  if (previous) await revoke(endpoints, previous.client_id, previous.refresh_token, opts.fetch).catch(() => {});
+  if (previous) {
+    await revoke(endpoints, previous.client_id, previous.refresh_token, opts.fetch).catch((error: unknown) => {
+      opts.print(`Could not revoke the previous link (${describeError(error)}); it expires on its own.`);
+    });
+  }
   opts.print('Linked. Your agent can use Autolane Courier now.');
 }
 

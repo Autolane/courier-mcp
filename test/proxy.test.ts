@@ -9,6 +9,7 @@ import { startCourierServer } from './courierServer.js';
 
 const cleanups: Array<() => Promise<unknown>> = [];
 afterEach(async () => {
+  vi.restoreAllMocks();
   while (cleanups.length) await cleanups.pop()!();
 });
 
@@ -53,7 +54,7 @@ describe('createProxy', () => {
     expect(forced.filter(Boolean)).toHaveLength(1);
   });
 
-  it('answers a tool call with the relink line as a tool error when the login is gone, and fails a list with it', async () => {
+  it('answers a tool call with the relink line as a tool error when the login is gone', async () => {
     const courier = await startCourierServer('good');
     cleanups.push(courier.close);
     const agent = await agentThrough(courier.url, { accessToken: async () => { throw new NotLinkedError(); } });
@@ -91,7 +92,6 @@ describe('createProxy', () => {
       const optionsAt = name === 'callTool' ? 2 : 1;
       expect(spy.mock.calls.some((args) => (args[optionsAt] as { signal?: unknown } | undefined)?.signal instanceof AbortSignal), name).toBe(true);
     }
-    vi.restoreAllMocks();
   });
 
   it('closes the upstream client when the proxy closes', async () => {
@@ -102,13 +102,12 @@ describe('createProxy', () => {
     await proxy.connect(proxySide);
     const agent = new Client({ name: 'agent', version: '0.0.0' });
     await agent.connect(agentSide);
+    cleanups.push(() => agent.close());
     await agent.listTools();
     const close = vi.spyOn(Client.prototype, 'close');
     await proxy.close();
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(close).toHaveBeenCalledTimes(1);
-    vi.restoreAllMocks();
-    await agent.close();
   });
 
   it('keeps the cause in the error the agent receives and in the log line', async () => {
@@ -124,6 +123,28 @@ describe('createProxy', () => {
     await expect(agent.listTools()).rejects.toThrow('fetch failed (getaddrinfo ENOTFOUND mcp.example.test)');
     proxy.onerror?.(new TypeError('fetch failed', { cause: new Error('getaddrinfo ENOTFOUND mcp.example.test') }));
     expect(lines).toContain('courier-mcp: fetch failed (getaddrinfo ENOTFOUND mcp.example.test)');
+  });
+
+  it('logs the upstream client\'s errors, and nothing once the proxy has closed', async () => {
+    const courier = await startCourierServer('good');
+    cleanups.push(courier.close);
+    const lines: string[] = [];
+    const connect = vi.spyOn(Client.prototype, 'connect');
+    const proxy = createProxy({ server: courier.url, session: { accessToken: async () => 'good' }, log: (line) => lines.push(line) });
+    const [agentSide, proxySide] = InMemoryTransport.createLinkedPair();
+    await proxy.connect(proxySide);
+    const agent = new Client({ name: 'agent', version: '0.0.0' });
+    await agent.connect(agentSide);
+    cleanups.push(() => agent.close());
+    await agent.listTools();
+    // The upstream client is the one connect() was called on that has an onerror handler.
+    const upstream = (connect.mock.contexts as Client[]).find((client) => client.onerror !== undefined)!;
+    upstream.onerror!(new Error('upstream boom'));
+    expect(lines).toEqual(['courier-mcp: upstream boom']);
+    await proxy.close();
+    upstream.onerror!(new Error('late'));
+    proxy.onerror?.(new Error('late too'));
+    expect(lines).toEqual(['courier-mcp: upstream boom']);
   });
 
   it('reports a protocol error as one line on the log, with the message and nothing else', () => {
