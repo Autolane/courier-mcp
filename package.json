@@ -1,0 +1,41 @@
+{
+  "name": "@autolane/courier-mcp",
+  "version": "0.1.0",
+  "description": "Autolane Courier MCP for agents on any machine: a local stdio server that links through the device grant",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "courier-mcp": "dist/bin.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Autolane/courier-mcp.git"
+  },
+  "homepage": "https://github.com/Autolane/courier-mcp#readme",
+  "keywords": [
+    "mcp",
+    "autolane",
+    "courier",
+    "delivery"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.11"
+  }
+}
