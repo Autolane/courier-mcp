@@ -23,7 +23,8 @@ export async function login(opts: LoginOptions): Promise<void> {
   const start = await startDevice(endpoints, clientId, opts.fetch);
   const link = start.verification_uri_complete ?? start.verification_uri;
   opts.print(`Open this link on any device (your phone works), then link your phone:\n\n  ${link}\n\nThe page should show the code ${start.user_code}. Waiting...`);
-  if (!opts.noBrowser) (opts.openUrl ?? openBrowser)(link);
+  // The link comes from the server's reply; open it only when it stays on the server's own origin.
+  if (!opts.noBrowser && new URL(link).origin === new URL(opts.server).origin) (opts.openUrl ?? openBrowser)(link);
   const tokens = await pollDevice(endpoints, clientId, start, { fetch: opts.fetch, sleep: opts.sleep, now: opts.now });
   await opts.store.write(savedFrom({ server: opts.server, client_id: clientId }, tokens, (opts.now ?? Date.now)()));
   opts.print('Linked. Your agent can use Autolane Courier now.');
@@ -31,7 +32,7 @@ export async function login(opts: LoginOptions): Promise<void> {
 
 /** Best effort: on a machine with no browser nothing opens, and the printed link is the way in. */
 export function openBrowser(url: string): void {
-  const [command, args]: [string, string[]] = process.platform === 'darwin' ? ['open', [url]] : process.platform === 'win32' ? ['explorer.exe', [url]] : ['xdg-open', [url]];
+  const [command, args]: [string, string[]] = process.platform === 'darwin' ? ['open', [url]] : process.platform === 'win32' ? [`${process.env.SystemRoot ?? 'C:\\Windows'}\\explorer.exe`, [url]] : ['xdg-open', [url]];
   const child = spawn(command, args, { stdio: 'ignore', detached: true });
   child.on('error', () => {});
   child.unref();
