@@ -5,30 +5,52 @@ on:
 permissions:
   contents: read
 jobs:
-  publish:
+  # Runs the project's dependencies (install, test, build), so it has no secret, no approval gate and no id-token.
+  # Step-level env is no boundary inside one job: a dependency can write $GITHUB_ENV or $GITHUB_PATH.
+  build:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # A required reviewer on this environment approves each release, and holds NPM_TOKEN.
-    environment: npm-publish
     permissions:
       contents: read
-      id-token: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 0
       - name: The tag points at a commit on main
         run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - name: The tag matches package.json
+        run: test "v$(node -p 'require("./package.json").version')" = "$GITHUB_REF_NAME"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - run: npm run build
+      - run: mkdir pack && npm pack --ignore-scripts --pack-destination pack
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: package
+          path: pack/*.tgz
+          if-no-files-found: error
+  # Holds the token and the id-token, and runs no project code: it publishes the tarball the build job made.
+  # A required reviewer on the npm-publish environment approves each release.
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write
+    steps:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
-      - run: npm ci --ignore-scripts
-      - run: npm test
-      - run: npm run build
-      - name: The tag matches package.json
-        run: test "v$(node -p 'require("./package.json").version')" = "$GITHUB_REF_NAME"
-      # The only step that sees the token. --ignore-scripts skips prepublishOnly, so the build above is the one that ships.
-      - run: npm publish --provenance --access public --ignore-scripts
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: package
+          path: pack
+      - run: npm publish pack/*.tgz --provenance --access public --ignore-scripts
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
