@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEVICE_GRANT, OAuthError, discover, pollDevice, refresh, register, revoke, startDevice, type DeviceStart } from '../src/oauth.js';
 import { ENDPOINTS, METADATA_URL, SERVER, fakeOAuth, oauthError, tokenReply } from './fakes.js';
 
@@ -98,5 +98,42 @@ describe('revoke', () => {
   it('throws on a non-2xx answer', async () => {
     const { fetch } = fakeOAuth({ revoke: [{ status: 503, body: {} }] });
     await expect(revoke(ENDPOINTS, 'mc_1', 'rt-1', fetch)).rejects.toMatchObject({ code: 'http_503' });
+  });
+});
+
+describe('request timeout', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  /** A fetch that never answers on its own and rejects when its signal aborts. */
+  const hung = (signals: Array<AbortSignal | null | undefined> = []): typeof globalThis.fetch => (_input, init) =>
+    new Promise<Response>((_resolve, reject) => {
+      signals.push(init?.signal);
+      init?.signal?.addEventListener('abort', () => reject(init.signal!.reason));
+    });
+
+  it('gives every request a 10 second signal', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    const { fetch, calls } = fakeOAuth();
+    const signals: Array<AbortSignal | null | undefined> = [];
+    const seen: typeof globalThis.fetch = (input, init) => {
+      signals.push(init?.signal);
+      return fetch(input, init);
+    };
+    await discover(SERVER, seen);
+    await register(ENDPOINTS, 'n', seen);
+    await startDevice(ENDPOINTS, 'mc_1', seen);
+    await pollDevice(ENDPOINTS, 'mc_1', start, { fetch: seen, sleep: async () => {}, now: () => 0 });
+    await refresh(ENDPOINTS, 'mc_1', 'rt-1', seen);
+    await revoke(ENDPOINTS, 'mc_1', 'rt-1', seen);
+    expect(calls).toHaveLength(6);
+    expect(signals.every((s) => s instanceof AbortSignal)).toBe(true);
+    expect(timeout).toHaveBeenCalledTimes(6);
+    expect(timeout.mock.calls.every(([ms]) => ms === 10_000)).toBe(true);
+  });
+
+  it('a request that hangs aborts and rejects', async () => {
+    const realTimeout = AbortSignal.timeout.bind(AbortSignal);
+    vi.spyOn(AbortSignal, 'timeout').mockImplementation(() => realTimeout(20));
+    await expect(refresh(ENDPOINTS, 'mc_1', 'rt-1', hung())).rejects.toBeTruthy();
   });
 });

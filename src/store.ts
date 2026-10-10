@@ -1,6 +1,7 @@
 // The login on disk (spec section 4.4): one JSON file, 0600 in a 0700 directory, replaced by rename.
 // The lock file serializes refreshes: the server rotates refresh tokens and revokes the whole family
 // when an old one is reused, so two agents sharing this file must never refresh at once.
+import { randomUUID } from 'node:crypto';
 import { chmod, mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
@@ -66,10 +67,11 @@ export function fileStore(dir: string, server: string, opts: StoreOptions = {}):
     async withLock(fn) {
       await ensureDir();
       const deadline = Date.now() + waitMs;
+      const mine = `${process.pid} ${randomUUID()}\n`;
       for (;;) {
         try {
           const handle = await open(lockPath, 'wx', 0o600);
-          await handle.writeFile(`${process.pid} ${new Date().toISOString()}\n`);
+          await handle.writeFile(mine);
           await handle.close();
           break;
         } catch (error) {
@@ -86,7 +88,9 @@ export function fileStore(dir: string, server: string, opts: StoreOptions = {}):
       try {
         return await fn();
       } finally {
-        await rm(lockPath, { force: true });
+        // Another process may have taken a lock we held too long (stale takeover); never remove theirs.
+        // debt: two waiters can both judge the same lock stale and both take it, upgrade to an atomic rename takeover if that is seen.
+        if ((await readFile(lockPath, 'utf8').catch(() => null)) === mine) await rm(lockPath, { force: true });
       }
     },
   };
