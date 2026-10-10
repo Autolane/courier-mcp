@@ -2,7 +2,7 @@
 // --no-browser, wait while the user links their phone on any device, then save the tokens.
 import { spawn } from 'node:child_process';
 import { CLIENT_NAME } from './config.js';
-import { discover, pollDevice, register, startDevice, type Fetch } from './oauth.js';
+import { OAuthError, discover, pollDevice, register, startDevice, type DeviceStart, type Fetch } from './oauth.js';
 import { savedFrom } from './session.js';
 import type { TokenStore } from './store.js';
 
@@ -19,8 +19,17 @@ export interface LoginOptions {
 
 export async function login(opts: LoginOptions): Promise<void> {
   const endpoints = await discover(opts.server, opts.fetch);
-  const clientId = (await opts.store.read())?.client_id ?? (await register(endpoints, CLIENT_NAME, opts.fetch));
-  const start = await startDevice(endpoints, clientId, opts.fetch);
+  const savedClient = (await opts.store.read())?.client_id;
+  let clientId = savedClient ?? (await register(endpoints, CLIENT_NAME, opts.fetch));
+  let start: DeviceStart;
+  try {
+    start = await startDevice(endpoints, clientId, opts.fetch);
+  } catch (error) {
+    // The server forgot the saved client: register a new one, once.
+    if (!savedClient || !(error instanceof OAuthError) || error.code !== 'invalid_client') throw error;
+    clientId = await register(endpoints, CLIENT_NAME, opts.fetch);
+    start = await startDevice(endpoints, clientId, opts.fetch);
+  }
   const link = start.verification_uri_complete ?? start.verification_uri;
   opts.print(`Open this link on any device (your phone works), then link your phone:\n\n  ${link}\n\nThe page should show the code ${start.user_code}. Waiting...`);
   // The link comes from the server's reply; open it only when it stays on the server's own origin.

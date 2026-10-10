@@ -101,6 +101,12 @@ describe('createSession', () => {
     expect(await store.read()).not.toBeNull();
   });
 
+  it('turns invalid_client (the server forgot this client) into NotLinkedError', async () => {
+    await store.write(saved({ access_expires_at: NOW - 1 }));
+    const { fetch } = fakeOAuth({ token: [oauthError('invalid_client', 401)] });
+    await expect(createSession({ store, endpoints, fetch, now: () => NOW }).accessToken()).rejects.toBeInstanceOf(NotLinkedError);
+  });
+
   it('keeps the saved login when the refresh answers 200 without tokens', async () => {
     const before = saved({ access_expires_at: NOW - 1 });
     await store.write(before);

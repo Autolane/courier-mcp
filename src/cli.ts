@@ -31,6 +31,12 @@ export interface CliDeps {
   transport?: () => Transport;
 }
 
+/** An error's message, with its cause's in parentheses: fetch says only "fetch failed" and keeps the reason in `cause`. */
+export function describeError(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  return error.cause instanceof Error ? `${error.message} (${error.cause.message})` : error.message;
+}
+
 /** Runs one command and resolves to its exit code, or to null for serve, which keeps running. */
 export async function main(argv: string[], deps: CliDeps): Promise<number | null> {
   const { values, positionals } = parseArgs({
@@ -67,7 +73,7 @@ export async function main(argv: string[], deps: CliDeps): Promise<number | null
       try {
         await revoke(await discover(server, deps.fetch), saved.client_id, saved.refresh_token, deps.fetch);
       } catch (error) {
-        deps.err(`Could not reach Autolane to revoke the link (${error instanceof Error ? error.message : String(error)}); removing it from this machine anyway.`);
+        deps.err(`Could not reach Autolane to revoke the link (${describeError(error)}); removing it from this machine anyway.`);
       }
       await store.remove();
       deps.out('Logged out. This machine is no longer linked.');

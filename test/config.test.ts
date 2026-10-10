@@ -21,7 +21,7 @@ describe('serverUrl', () => {
   });
 
   it('refuses a value that is not a URL', () => {
-    expect(() => serverUrl({ AUTOLANE_COURIER_URL: 'mcp.goautolane.com' })).toThrow();
+    expect(() => serverUrl({ AUTOLANE_COURIER_URL: 'mcp.goautolane.com' })).toThrow('AUTOLANE_COURIER_URL is not a URL: mcp.goautolane.com');
   });
 });
 
