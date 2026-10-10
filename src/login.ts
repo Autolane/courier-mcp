@@ -2,7 +2,7 @@
 // --no-browser, wait while the user links their phone on any device, then save the tokens.
 import { spawn } from 'node:child_process';
 import { CLIENT_NAME } from './config.js';
-import { describeError } from './errors.js';
+import { describeError, plain } from './errors.js';
 import { OAuthError, discover, pollDevice, register, revoke, startDevice, type DeviceStart, type Fetch } from './oauth.js';
 import { savedFrom } from './session.js';
 import type { TokenStore } from './store.js';
@@ -33,8 +33,6 @@ export async function login(opts: LoginOptions): Promise<void> {
   }
   // The link comes from the server's reply. Print and open the parsed form, and open it only on the server's own origin.
   const url = new URL(start.verification_uri_complete ?? start.verification_uri);
-  // eslint-disable-next-line no-control-regex
-  const plain = (text: string) => text.replace(/[\x00-\x1f\x7f]/g, '');
   opts.print(`Open this link on any device (your phone works), then link your phone:\n\n  ${plain(url.href)}\n\nThe page should show the code ${plain(start.user_code)}. Waiting...`);
   if (!opts.noBrowser && url.origin === new URL(opts.server).origin) (opts.openUrl ?? openBrowser)(url.href);
   const tokens = await pollDevice(endpoints, clientId, start, { fetch: opts.fetch, sleep: opts.sleep, now: opts.now });

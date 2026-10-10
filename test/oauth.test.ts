@@ -119,7 +119,12 @@ describe('pollDevice', () => {
       calls += 1;
       throw new TypeError("Cannot read properties of undefined (reading 'x')");
     };
-    await expect(pollDevice(ENDPOINTS, 'mc_1', start, { fetch: buggy, sleep: async () => {}, now: () => 0 })).rejects.toThrow('Cannot read properties of undefined');
+    // If the poll retried a bug it would loop; the sleep throws after 3 polls so that shows as a failure, not a hang.
+    let sleeps = 0;
+    const sleep = async () => {
+      if (++sleeps > 3) throw new Error('looped: the poll retried a bug');
+    };
+    await expect(pollDevice(ENDPOINTS, 'mc_1', start, { fetch: buggy, sleep, now: () => 0 })).rejects.toThrow('Cannot read properties of undefined');
     expect(calls).toBe(1);
   });
 
@@ -160,6 +165,48 @@ describe('pollDevice', () => {
     const sleeps: number[] = [];
     await pollDevice(ENDPOINTS, 'mc_1', start, { fetch, sleep: async (ms) => { sleeps.push(ms); }, now: () => 0 });
     expect(sleeps).toEqual([5_000, 10_000]);
+  });
+});
+
+describe('a body that is not a JSON object', () => {
+  const raw = (status: number): typeof globalThis.fetch => async () => new Response('null', { status });
+
+  it('on a 200 reads as an empty token reply', async () => {
+    await expect(refresh(ENDPOINTS, 'mc_1', 'rt-1', raw(200))).rejects.toMatchObject({ code: 'invalid_response', status: 502 });
+  });
+
+  it('on a 400 still gives the http error', async () => {
+    await expect(refresh(ENDPOINTS, 'mc_1', 'rt-1', raw(400))).rejects.toMatchObject({ code: 'http_400', status: 400 });
+  });
+});
+
+describe('discover with control characters in the server-supplied values', () => {
+  it('strips them from the error text', async () => {
+    const { fetch } = fakeOAuth({ metadata: [{ body: { issuer: 'https://other.example.test/\u001b[2Jx', ...ENDPOINTS } }] });
+    const err = await discover(SERVER, fetch).then(() => new Error('resolved'), (e: Error) => e);
+    expect(err.message).toContain('https://other.example.test/[2Jx');
+    expect(err.message).not.toMatch(/[\x00-\x1f\x7f]/u);
+  });
+});
+
+describe('startDevice with a malformed reply', () => {
+  const good = { device_code: 'd', user_code: 'u', verification_uri: 'https://x.test/d', expires_in: 600 };
+  it.each([
+    ['no body fields', {}],
+    ['a non-string device_code', { ...good, device_code: 1 }],
+    ['a non-string user_code', { ...good, user_code: undefined }],
+    ['a non-string verification_uri', { ...good, verification_uri: null }],
+    ['a non-numeric expires_in', { ...good, expires_in: '600' }],
+    ['a null expires_in', { ...good, expires_in: null }],
+    ['a non-numeric interval', { ...good, interval: '5' }],
+  ])('rejects %s', async (_name, body) => {
+    const { fetch } = fakeOAuth({ device: [{ body }] });
+    await expect(startDevice(ENDPOINTS, 'mc_1', fetch)).rejects.toMatchObject({ code: 'invalid_response', status: 502 });
+  });
+
+  it('accepts a reply without interval or verification_uri_complete', async () => {
+    const { fetch } = fakeOAuth({ device: [{ body: good }] });
+    expect(await startDevice(ENDPOINTS, 'mc_1', fetch)).toMatchObject(good);
   });
 });
 

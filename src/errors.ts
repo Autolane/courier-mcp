@@ -10,3 +10,7 @@ export function describeError(error: unknown): string {
   const reason = cause.message || inner?.message || inner?.code || (cause as Error & { code?: string }).code || cause.name;
   return `${error.message} (${reason})`;
 }
+
+/** Text from a server, safe to print: control characters (an escape sequence, a newline) are dropped. */
+// eslint-disable-next-line no-control-regex
+export const plain = (text: string): string => text.replace(/[\x00-\x1f\x7f]/g, '');
