@@ -39,7 +39,7 @@ const isSaved = (value: unknown): value is Saved => {
 const isMissing = (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT';
 
 export function fileStore(dir: string, server: string, opts: StoreOptions = {}): TokenStore {
-  const { staleMs = 30_000, waitMs = 10_000, pollMs = 100 } = opts;
+  const { staleMs = 30_000, waitMs = 30_000, pollMs = 100 } = opts;
   const path = join(dir, 'courier-mcp.json');
   const lockPath = join(dir, 'courier-mcp.lock');
   const ensureDir = async () => {
@@ -70,8 +70,13 @@ export function fileStore(dir: string, server: string, opts: StoreOptions = {}):
     async write(saved) {
       await ensureDir();
       const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
-      await writeFile(tmp, `${JSON.stringify(saved, null, 2)}\n`, { mode: 0o600 });
-      await rename(tmp, path);
+      try {
+        await writeFile(tmp, `${JSON.stringify(saved, null, 2)}\n`, { mode: 0o600 });
+        await rename(tmp, path);
+      } catch (error) {
+        await rm(tmp, { force: true });
+        throw error;
+      }
     },
     async remove() {
       await rm(path, { force: true });
@@ -83,8 +88,15 @@ export function fileStore(dir: string, server: string, opts: StoreOptions = {}):
       for (;;) {
         try {
           const handle = await open(lockPath, 'wx', 0o600);
-          await handle.writeFile(mine);
-          await handle.close();
+          try {
+            await handle.writeFile(mine);
+            await handle.close();
+          } catch (writeError) {
+            // We created the lock but could not finish it: do not strand it for the stale limit.
+            await handle.close().catch(() => {});
+            await rm(lockPath, { force: true });
+            throw writeError;
+          }
           break;
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;

@@ -2,7 +2,7 @@
 // --no-browser, wait while the user links their phone on any device, then save the tokens.
 import { spawn } from 'node:child_process';
 import { CLIENT_NAME } from './config.js';
-import { OAuthError, discover, pollDevice, register, startDevice, type DeviceStart, type Fetch } from './oauth.js';
+import { OAuthError, discover, pollDevice, register, revoke, startDevice, type DeviceStart, type Fetch } from './oauth.js';
 import { savedFrom } from './session.js';
 import type { TokenStore } from './store.js';
 
@@ -37,7 +37,14 @@ export async function login(opts: LoginOptions): Promise<void> {
   opts.print(`Open this link on any device (your phone works), then link your phone:\n\n  ${plain(url.href)}\n\nThe page should show the code ${plain(start.user_code)}. Waiting...`);
   if (!opts.noBrowser && url.origin === new URL(opts.server).origin) (opts.openUrl ?? openBrowser)(url.href);
   const tokens = await pollDevice(endpoints, clientId, start, { fetch: opts.fetch, sleep: opts.sleep, now: opts.now });
-  await opts.store.write(savedFrom({ server: opts.server, client_id: clientId }, tokens, (opts.now ?? Date.now)()));
+  // Save under the lock, so a refresh running in an agent cannot interleave with it.
+  const previous = await opts.store.withLock(async () => {
+    const before = await opts.store.read();
+    await opts.store.write(savedFrom({ server: opts.server, client_id: clientId }, tokens, (opts.now ?? Date.now)()));
+    return before;
+  });
+  // The old login is replaced, so revoke it; best effort, since the new one already works.
+  if (previous) await revoke(endpoints, previous.client_id, previous.refresh_token, opts.fetch).catch(() => {});
   opts.print('Linked. Your agent can use Autolane Courier now.');
 }
 

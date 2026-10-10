@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -55,6 +55,13 @@ describe('fileStore', () => {
     expect(await store.read()).toBeNull();
   });
 
+  it('tightens a directory that already exists with 0755', async () => {
+    await mkdir(dir, { mode: 0o755 });
+    await chmod(dir, 0o755);
+    await fileStore(dir, SERVER).write(saved);
+    expect((await stat(dir)).mode & 0o777).toBe(0o700);
+  });
+
   it('remove deletes the file and is fine when there is none', async () => {
     const store = fileStore(dir, SERVER);
     await store.remove();
@@ -84,6 +91,21 @@ describe('withLock', () => {
     await writeFile(lock, '999999 old\n');
     const old = new Date(Date.now() - 60_000);
     await utimes(lock, old, old);
+    expect(await store.withLock(async () => 'ran')).toBe('ran');
+  });
+
+  it('treats a lock as stale after 30 seconds by default, and not before', async () => {
+    const store = fileStore(dir, SERVER, { waitMs: 100, pollMs: 20 });
+    await store.write(saved);
+    const lock = join(dir, 'courier-mcp.lock');
+    const age = async (ms: number) => {
+      await writeFile(lock, '999999 old\n');
+      const t = new Date(Date.now() - ms);
+      await utimes(lock, t, t);
+    };
+    await age(25_000);
+    await expect(store.withLock(async () => 'ran')).rejects.toThrow('Another courier-mcp process holds');
+    await age(31_000);
     expect(await store.withLock(async () => 'ran')).toBe('ran');
   });
 

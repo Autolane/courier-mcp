@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -14,12 +15,14 @@ const NOW = 1_800_000_000_000;
 let xdg: string;
 let out: string[];
 let err: string[];
+const cleanups: Array<() => Promise<unknown>> = [];
 beforeEach(async () => {
   xdg = await mkdtemp(join(tmpdir(), 'courier-mcp-cli-'));
   out = [];
   err = [];
 });
 afterEach(async () => {
+  while (cleanups.length) await cleanups.pop()!();
   await rm(xdg, { recursive: true, force: true });
 });
 
@@ -92,6 +95,20 @@ describe('main', () => {
     expect(out).toEqual(['Logged out. This machine is no longer linked.']);
   });
 
+  it('logout revokes while it holds the lock, and releases it', async () => {
+    await link();
+    const lock = join(xdg, 'autolane', 'courier-mcp.lock');
+    const heldDuringRevoke: boolean[] = [];
+    const { fetch } = fakeOAuth();
+    const watching: typeof globalThis.fetch = async (input, init) => {
+      if (String(input).endsWith('/oauth/revoke')) heldDuringRevoke.push(existsSync(lock));
+      return fetch(input, init);
+    };
+    expect(await main(['logout'], deps({ fetch: watching }))).toBe(0);
+    expect(heldDuringRevoke).toEqual([true]);
+    expect(existsSync(lock)).toBe(false);
+  });
+
   it('logout still removes the file when Autolane cannot be reached', async () => {
     await link();
     const failing = async () => { throw new TypeError('fetch failed'); };
@@ -126,15 +143,15 @@ describe('main', () => {
 
   it('serve with a login runs the proxy on the given transport and stays running', async () => {
     const courier = await startCourierServer('secret-access');
+    cleanups.push(courier.close);
     const [agentSide, proxySide] = InMemoryTransport.createLinkedPair();
     await link({}, courier.url);
     const code = await main([], deps({ env: { XDG_CONFIG_HOME: xdg, AUTOLANE_COURIER_URL: courier.url }, transport: () => proxySide }));
     expect(code).toBeNull();
     const agent = new Client({ name: 'agent', version: '0.0.0' });
+    cleanups.push(() => agent.close());
     await agent.connect(agentSide);
     expect((await agent.listTools()).tools.map((t) => t.name)).toEqual(['check_delivery']);
     expect(out).toEqual([]);
-    await agent.close();
-    await courier.close();
   });
 });
