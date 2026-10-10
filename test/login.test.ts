@@ -52,6 +52,15 @@ describe('login', () => {
     expect(printed[0]).toContain(`  ${SERVER}/oauth/device\n`);
   });
 
+  it('prints a link on another origin but never opens it', async () => {
+    const evil = 'https://evil.example.test/oauth/device?user_code=BCDFGHJK';
+    const { fetch } = fakeOAuth({ device: [{ body: { device_code: 'dev-1', user_code: 'BCDF-GHJK', verification_uri: evil, expires_in: 600, interval: 5 } }] });
+    const { done, printed, opened } = run(fetch, false);
+    await done;
+    expect(printed[0]).toContain(evil);
+    expect(opened).toEqual([]);
+  });
+
   it('reuses the client already saved for this server', async () => {
     await store.write({ server: SERVER, client_id: 'mc_old', access_token: 'a', refresh_token: 'r', access_expires_at: 0 });
     const { fetch, calls } = fakeOAuth();
