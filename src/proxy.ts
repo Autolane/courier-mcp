@@ -17,7 +17,9 @@ export function bearerFetch(session: Session, base: Fetch = fetch): Fetch {
       return base(input, { ...init, headers });
     };
     const first = await send(false);
-    return first.status === 401 ? send(true) : first;
+    if (first.status !== 401) return first;
+    await first.body?.cancel();
+    return send(true);
   };
 }
 
