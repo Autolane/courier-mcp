@@ -30,10 +30,12 @@ export async function login(opts: LoginOptions): Promise<void> {
     clientId = await register(endpoints, CLIENT_NAME, opts.fetch);
     start = await startDevice(endpoints, clientId, opts.fetch);
   }
-  const link = start.verification_uri_complete ?? start.verification_uri;
-  opts.print(`Open this link on any device (your phone works), then link your phone:\n\n  ${link}\n\nThe page should show the code ${start.user_code}. Waiting...`);
-  // The link comes from the server's reply; open it only when it stays on the server's own origin.
-  if (!opts.noBrowser && new URL(link).origin === new URL(opts.server).origin) (opts.openUrl ?? openBrowser)(link);
+  // The link comes from the server's reply. Print and open the parsed form, and open it only on the server's own origin.
+  const url = new URL(start.verification_uri_complete ?? start.verification_uri);
+  // eslint-disable-next-line no-control-regex
+  const plain = (text: string) => text.replace(/[\x00-\x1f\x7f]/g, '');
+  opts.print(`Open this link on any device (your phone works), then link your phone:\n\n  ${plain(url.href)}\n\nThe page should show the code ${plain(start.user_code)}. Waiting...`);
+  if (!opts.noBrowser && url.origin === new URL(opts.server).origin) (opts.openUrl ?? openBrowser)(url.href);
   const tokens = await pollDevice(endpoints, clientId, start, { fetch: opts.fetch, sleep: opts.sleep, now: opts.now });
   await opts.store.write(savedFrom({ server: opts.server, client_id: clientId }, tokens, (opts.now ?? Date.now)()));
   opts.print('Linked. Your agent can use Autolane Courier now.');
