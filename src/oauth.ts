@@ -84,9 +84,9 @@ export async function discover(server: string, f: Fetch = fetch): Promise<Endpoi
     if (typeof meta[key] !== 'string') throw new Error(`${server} does not offer ${key}; is it a Courier MCP URL?`);
   }
   // A metadata document is trusted only if it names this server and keeps every endpoint on its origin.
-  if (meta.issuer !== server) throw new Error(`${server} metadata has the wrong issuer; is it a Courier MCP URL?`);
+  if (meta.issuer !== server) throw new Error(`${server} metadata has the wrong issuer ${String(meta.issuer)}; is it a Courier MCP URL?`);
   for (const key of ENDPOINT_KEYS) {
-    if (new URL(meta[key] as string).origin !== url.origin) throw new Error(`${server} metadata puts ${key} on another origin`);
+    if (new URL(meta[key] as string).origin !== url.origin) throw new Error(`${server} metadata puts ${key} on another origin: ${meta[key] as string}`);
   }
   return meta as Endpoints;
 }
@@ -99,7 +99,9 @@ export async function register(endpoints: Endpoints, clientName: string, f: Fetc
     body: JSON.stringify({ client_name: clientName, redirect_uris: [], grant_types: [DEVICE_GRANT, 'refresh_token'], token_endpoint_auth_method: 'none' }),
     ...guard(),
   });
-  return (await json<{ client_id: string }>(res, endpoints.registration_endpoint)).client_id;
+  const { client_id } = await json<{ client_id?: unknown }>(res, endpoints.registration_endpoint);
+  if (typeof client_id !== 'string') throw new OAuthError('invalid_response', 'The registration response has no client_id', 502);
+  return client_id;
 }
 
 export async function startDevice(endpoints: Endpoints, clientId: string, f: Fetch = fetch): Promise<DeviceStart> {

@@ -26,6 +26,13 @@ describe('discover', () => {
     await expect(discover(SERVER, fetch)).rejects.toThrow(field);
   });
 
+  it('names the value it was given when the issuer or an endpoint is wrong', async () => {
+    const wrongIssuer = fakeOAuth({ metadata: [{ body: { issuer: 'https://other.example.test/courier-mcp', ...ENDPOINTS } }] });
+    await expect(discover(SERVER, wrongIssuer.fetch)).rejects.toThrow('https://other.example.test/courier-mcp');
+    const wrongOrigin = fakeOAuth({ metadata: [{ body: { issuer: SERVER, ...ENDPOINTS, token_endpoint: 'https://evil.example.test/oauth/x' } }] });
+    await expect(discover(SERVER, wrongOrigin.fetch)).rejects.toThrow('https://evil.example.test/oauth/x');
+  });
+
   it('turns an HTTP error into an OAuthError', async () => {
     const { fetch } = fakeOAuth({ metadata: [{ status: 404, body: 'Not Found' }] });
     await expect(discover(SERVER, fetch)).rejects.toMatchObject({ code: 'http_404', status: 404, message: 'http_404 from /.well-known/oauth-authorization-server/courier-mcp' });
@@ -37,6 +44,13 @@ describe('register', () => {
     const { fetch, calls } = fakeOAuth();
     expect(await register(ENDPOINTS, 'Autolane Courier MCP', fetch)).toBe('mc_new');
     expect(calls[0].json).toEqual({ client_name: 'Autolane Courier MCP', redirect_uris: [], grant_types: [DEVICE_GRANT, 'refresh_token'], token_endpoint_auth_method: 'none' });
+  });
+});
+
+describe('register without a client id', () => {
+  it.each([{}, { client_id: 7 }])('rejects a reply of %j', async (body) => {
+    const { fetch } = fakeOAuth({ register: [{ status: 201, body }] });
+    await expect(register(ENDPOINTS, 'n', fetch)).rejects.toMatchObject({ code: 'invalid_response', status: 502 });
   });
 });
 
