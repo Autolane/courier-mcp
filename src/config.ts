@@ -1,7 +1,7 @@
 // Where the package talks to, and where it keeps its login (spec section 4.4).
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { posix, win32, join } from 'node:path';
 
 export const DEFAULT_SERVER = 'https://mcp.goautolane.com/courier-mcp';
 export const RELINK = 'Not linked. Run: npx -y @autolane/courier-mcp login --no-browser';
@@ -28,6 +28,9 @@ export function serverUrl(env: NodeJS.ProcessEnv = process.env): string {
 
 /** The token file's directory: %APPDATA%\autolane on Windows, else $XDG_CONFIG_HOME/autolane or ~/.config/autolane. */
 export function configDir(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): string {
-  if (platform === 'win32' && env.APPDATA) return join(env.APPDATA, 'autolane');
-  return join(env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'autolane');
+  // The XDG spec says to ignore a relative path, and a relative APPDATA would put the token file in the working directory.
+  const absolute = (path: string | undefined) => (path && (platform === 'win32' ? win32 : posix).isAbsolute(path) ? path : undefined);
+  const appData = platform === 'win32' ? absolute(env.APPDATA) : undefined;
+  if (appData) return join(appData, 'autolane');
+  return join(absolute(env.XDG_CONFIG_HOME) ?? join(homedir(), '.config'), 'autolane');
 }

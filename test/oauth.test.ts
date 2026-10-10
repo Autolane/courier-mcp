@@ -16,6 +16,16 @@ describe('discover', () => {
     await expect(discover(SERVER, fetch)).rejects.toThrow('does not offer registration_endpoint; is it a Courier MCP URL?');
   });
 
+  it('refuses metadata whose issuer is not the server URL', async () => {
+    const { fetch } = fakeOAuth({ metadata: [{ body: { issuer: 'https://other.example.test/courier-mcp', ...ENDPOINTS } }] });
+    await expect(discover(SERVER, fetch)).rejects.toThrow('issuer');
+  });
+
+  it.each(['registration_endpoint', 'device_authorization_endpoint', 'token_endpoint', 'revocation_endpoint'] as const)('refuses an %s on another origin', async (field) => {
+    const { fetch } = fakeOAuth({ metadata: [{ body: { issuer: SERVER, ...ENDPOINTS, [field]: 'https://evil.example.test/oauth/x' } }] });
+    await expect(discover(SERVER, fetch)).rejects.toThrow(field);
+  });
+
   it('turns an HTTP error into an OAuthError', async () => {
     const { fetch } = fakeOAuth({ metadata: [{ status: 404, body: 'Not Found' }] });
     await expect(discover(SERVER, fetch)).rejects.toMatchObject({ code: 'http_404', status: 404, message: 'http_404 from /.well-known/oauth-authorization-server/courier-mcp' });
@@ -158,12 +168,14 @@ describe('request timeout', () => {
       init?.signal?.addEventListener('abort', () => reject(init.signal!.reason));
     });
 
-  it('gives every request a 10 second signal', async () => {
+  it('gives every request a 10 second signal and refuses redirects', async () => {
     const timeout = vi.spyOn(AbortSignal, 'timeout');
     const { fetch, calls } = fakeOAuth();
     const signals: Array<AbortSignal | null | undefined> = [];
+    const redirects: Array<RequestRedirect | undefined> = [];
     const seen: typeof globalThis.fetch = (input, init) => {
       signals.push(init?.signal);
+      redirects.push(init?.redirect);
       return fetch(input, init);
     };
     await discover(SERVER, seen);
@@ -176,6 +188,7 @@ describe('request timeout', () => {
     expect(signals.every((s) => s instanceof AbortSignal)).toBe(true);
     expect(timeout).toHaveBeenCalledTimes(6);
     expect(timeout.mock.calls.every(([ms]) => ms === 10_000)).toBe(true);
+    expect(redirects).toEqual(Array(6).fill('error'));
   });
 
   it('a request that hangs aborts and rejects', async () => {

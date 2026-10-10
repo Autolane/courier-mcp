@@ -61,6 +61,16 @@ describe('login', () => {
     expect(opened).toEqual([]);
   });
 
+  it('prints and opens the same normalised link, and strips control characters from what it prints', async () => {
+    const { fetch } = fakeOAuth({ device: [{ body: { device_code: 'dev-1', user_code: 'BC\x1b[2JDF-GHJK', verification_uri: 'https://MCP.example.test/courier-mcp/oauth/device\u0007', expires_in: 600, interval: 5 } }] });
+    const { done, printed, opened } = run(fetch, false);
+    await done;
+    expect(opened).toEqual([new URL('https://MCP.example.test/courier-mcp/oauth/device\u0007').href]);
+    expect(printed[0]).toContain(`  ${opened[0]}\n`);
+    expect(printed[0]).not.toMatch(/[\x00-\x09\x0b-\x1f\x7f]/u);
+    expect(printed[0]).toContain('BC[2JDF-GHJK');
+  });
+
   it('reuses the client already saved for this server', async () => {
     await store.write({ server: SERVER, client_id: 'mc_old', access_token: 'a', refresh_token: 'r', access_expires_at: 0 });
     const { fetch, calls } = fakeOAuth();

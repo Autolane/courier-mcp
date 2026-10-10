@@ -34,6 +34,11 @@ describe('configDir', () => {
     expect(configDir({ XDG_CONFIG_HOME: '/tmp/xdg' }, 'linux')).toBe('/tmp/xdg/autolane');
   });
 
+  it('ignores a relative XDG_CONFIG_HOME or APPDATA, as the XDG spec says', () => {
+    expect(configDir({ XDG_CONFIG_HOME: 'relative/dir' }, 'linux')).toBe(join(homedir(), '.config', 'autolane'));
+    expect(configDir({ APPDATA: 'AppData' }, 'win32')).toBe(join(homedir(), '.config', 'autolane'));
+  });
+
   it('falls back to ~/.config/autolane on Linux and macOS', () => {
     expect(configDir({}, 'linux')).toBe(join(homedir(), '.config', 'autolane'));
     expect(configDir({}, 'darwin')).toBe(join(homedir(), '.config', 'autolane'));
