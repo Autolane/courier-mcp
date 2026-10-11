@@ -51,6 +51,7 @@ jobs:
         with:
           name: package
           path: pack
-      - run: npm publish pack/*.tgz --provenance --access public --ignore-scripts
+      # The ./ matters: npm reads a bare dir/file.tgz as a GitHub user/repo shorthand.
+      - run: npm publish ./pack/*.tgz --provenance --access public --ignore-scripts
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
