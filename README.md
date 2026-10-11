@@ -23,7 +23,7 @@ Most AI assistants connect to Autolane Courier directly: add `https://mcp.goauto
 
 Full guides: [docs.goautolane.com/courier/get-started](https://docs.goautolane.com/courier/get-started).
 
-**Terminal agent on another machine** (over SSH or on a server)? After you link your phone, the Autolane page shows a `curl` command; run it on the machine where the agent runs.
+**Terminal agent on another machine** (over SSH or on a server)? After you link your phone, the Autolane page asks where the agent is running. Pick **On another computer** and paste the link it shows where the agent asks for one. If the agent doesn't ask, open "isn't asking for a link?" and run the `curl` command it shows on the agent's machine.
 
 ## When to use this package
 
