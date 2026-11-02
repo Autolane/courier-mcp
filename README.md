@@ -1,25 +1,25 @@
 # @autolane/courier-mcp
 
-Use [Autolane Courier](https://docs.goautolane.com/courier/get-started) from an AI agent on any machine, including one with no browser: a server, a container, or a computer you reach over SSH.
+Use [Courier by Autolane](https://docs.goautolane.com/courier/get-started) from an AI agent on any machine, including one with no browser: a server, a container, or a computer you reach over SSH.
 
 This package runs a small MCP server on your machine. It links to your phone once, keeps its own login, and passes your agent's requests to Autolane at `https://mcp.goautolane.com/courier-mcp`. Any agent that can run a local (stdio) MCP server can use it, even one without OAuth.
 
 ## You probably don't need this package
 
-Most AI assistants connect to Autolane Courier directly: add `https://mcp.goautolane.com/courier-mcp` as a custom connector or MCP server, link your phone, and you're done. Nothing to install.
+Most AI assistants connect to Courier by Autolane directly: add `https://mcp.goautolane.com/courier-mcp` as a custom connector or MCP server, link your phone, and you're done. Nothing to install.
 
-- **Claude** (claude.ai, Claude Desktop, phone apps): Customize, Connectors, + Add, Add custom connector. Name `Autolane Courier`, URL `https://mcp.goautolane.com/courier-mcp`. Select Connect, then enter your mobile number and the 6-digit code Autolane texts you.
-- **ChatGPT** (web, and your dots): chatgpt.com/plugins, +, Add custom MCP server. Name `Autolane Courier`, Server URL `https://mcp.goautolane.com/courier-mcp`, Authentication OAuth (leave client ID and secret empty). Select Connect and link your phone.
-- **Claude Code**: `claude mcp add --transport http --scope user autolane-courier https://mcp.goautolane.com/courier-mcp`, then `claude mcp login autolane-courier`.
-- **Codex** (CLI, IDE extension, ChatGPT desktop app): `codex mcp add autolane-courier --url https://mcp.goautolane.com/courier-mcp`. Codex opens your browser; if not, run `codex mcp login autolane-courier`.
-- **OpenClaw**: `openclaw mcp add autolane-courier --url https://mcp.goautolane.com/courier-mcp --transport streamable-http --auth oauth`, then `openclaw mcp login autolane-courier`.
+- **Claude** (claude.ai, Claude Desktop, phone apps): Customize, Connectors, + Add, Add custom connector. Name `Courier by Autolane`, URL `https://mcp.goautolane.com/courier-mcp`. Select Connect, then enter your mobile number and the 6-digit code Autolane texts you.
+- **ChatGPT** (web, and your dots): chatgpt.com/plugins, +, Add custom MCP server. Name `Courier by Autolane`, Server URL `https://mcp.goautolane.com/courier-mcp`, Authentication OAuth (leave client ID and secret empty). Select Connect and link your phone.
+- **Claude Code**: `claude mcp add --transport http --scope user courier-by-autolane https://mcp.goautolane.com/courier-mcp`, then `claude mcp login courier-by-autolane`.
+- **Codex** (CLI, IDE extension, ChatGPT desktop app): `codex mcp add courier-by-autolane --url https://mcp.goautolane.com/courier-mcp`. Codex opens your browser; if not, run `codex mcp login courier-by-autolane`.
+- **OpenClaw**: `openclaw mcp add courier-by-autolane --url https://mcp.goautolane.com/courier-mcp --transport streamable-http --auth oauth`, then `openclaw mcp login courier-by-autolane`.
 - **Hermes**: add this custom MCP entry, then open its config and select Retry, then Authorize:
 
   ```json
   { "mcpServers": { "Courier by Autolane": { "url": "https://mcp.goautolane.com/courier-mcp", "auth": "oauth" } } }
   ```
 
-- **Muse** (Meta AI): ask "Connect the Autolane Courier MCP at https://mcp.goautolane.com/courier-mcp", open the link it shows, and check the code matches.
+- **Muse** (Meta AI): ask "Connect the Courier by Autolane MCP at https://mcp.goautolane.com/courier-mcp", open the link it shows, and check the code matches.
 
 Full guides: [docs.goautolane.com/courier/get-started](https://docs.goautolane.com/courier/get-started).
 
@@ -37,13 +37,13 @@ On the machine where your agent runs:
 
 Open the link it prints on any device (your phone works), check the page shows the same code, and enter your mobile number and the 6-digit code Autolane texts you. The command finishes by itself. Leave out `--no-browser` to have it open the link in a browser on this machine.
 
-Autolane Courier is invite-only for now. If the page says the service isn't available for your number, [join the waitlist](https://goautolane.com/autolane-courier).
+Courier by Autolane is invite-only for now. If the page says the service isn't available for your number, [join the waitlist](https://goautolane.com/autolane-courier).
 
 ### Add it to your agent
 
 Claude Code:
 
-    claude mcp add --scope user autolane-courier -- npx -y @autolane/courier-mcp
+    claude mcp add --scope user courier-by-autolane -- npx -y @autolane/courier-mcp
 
 Any other agent: add a local (stdio) MCP server with the command `npx` and the arguments `-y @autolane/courier-mcp`.
 

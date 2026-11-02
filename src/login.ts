@@ -48,7 +48,7 @@ export async function login(opts: LoginOptions): Promise<void> {
       opts.print(`Could not revoke the previous link (${describeError(error)}); it expires on its own.`);
     });
   }
-  opts.print('Linked. Your agent can use Autolane Courier now.');
+  opts.print('Linked. Your agent can use Courier by Autolane now.');
 }
 
 /** Best effort: on a machine with no browser nothing opens, and the printed link is the way in. */

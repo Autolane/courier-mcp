@@ -1,7 +1,8 @@
 {
   "name": "@autolane/courier-mcp",
-  "version": "0.1.0",
-  "description": "Autolane Courier MCP for agents on any machine: a local stdio server that links through the device grant",
+  "version": "0.1.1",
+  "mcpName": "com.goautolane/courier",
+  "description": "Courier by Autolane MCP for agents on any machine: a local stdio server that links through the device grant",
   "license": "MIT",
   "type": "module",
   "bin": {

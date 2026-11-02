@@ -33,7 +33,7 @@ describe('login', () => {
     expect(calls.find((c) => c.url.endsWith('/oauth/register'))?.json).toMatchObject({ client_name: CLIENT_NAME, redirect_uris: [] });
     expect(printed[0]).toContain(`${SERVER}/oauth/device?user_code=BCDFGHJK`);
     expect(printed[0]).toContain('BCDF-GHJK');
-    expect(printed.at(-1)).toBe('Linked. Your agent can use Autolane Courier now.');
+    expect(printed.at(-1)).toBe('Linked. Your agent can use Courier by Autolane now.');
     expect(opened).toEqual([`${SERVER}/oauth/device?user_code=BCDFGHJK`]);
     expect(await store.read()).toEqual({ server: SERVER, client_id: 'mc_new', access_token: 'at-1', refresh_token: 'rt-1', access_expires_at: NOW + 3_600_000 });
   });
