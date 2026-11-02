@@ -5,8 +5,8 @@ import { posix, win32, join } from 'node:path';
 
 export const DEFAULT_SERVER = 'https://mcp.goautolane.com/courier-mcp';
 export const RELINK = 'Not linked. Run: npx -y @autolane/courier-mcp login --no-browser';
-/** The client_name the phone page shows: "Link your phone to Autolane Courier MCP". */
-export const CLIENT_NAME = 'Autolane Courier MCP';
+/** The client_name the phone page shows: "Link your phone to Courier by Autolane MCP". */
+export const CLIENT_NAME = 'Courier by Autolane MCP';
 export const VERSION: string = (createRequire(import.meta.url)('../package.json') as { version: string }).version;
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1']);
